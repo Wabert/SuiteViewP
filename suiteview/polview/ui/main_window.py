@@ -646,7 +646,7 @@ class GetPolicyWindow(FramelessWindowBase):
             self._show_reinstatement_tab()
         elif key == "annuity_rider":
             self._show_annuity_rider_tab()
-        elif key in ("glp_exception", "forecast", "abr", "policy_support"):
+        elif key in ("glp_exception", "gep_v2", "forecast", "abr", "policy_support"):
             self.tabs.setCurrentWidget(self.policy_support_tab)
             if self._load_policy_tab(self.policy_support_tab):
                 self.policy_support_tab.open_section(key)

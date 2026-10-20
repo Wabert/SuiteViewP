@@ -50,6 +50,13 @@ class MonthlyState:
     wd_face_decrease: float = 0.0        # BP
     wd_sa_change_by_cov: Dict[int, float] = field(default_factory=dict)  # BI..BL
 
+    # ── Policy change premium (core/change_charge_premium.py) ──
+    # Gross premium applied after the withdrawal and before the DB option / face
+    # change to cover the change's partial surrender charge; also included in
+    # gross_premium and the premium loads. Detail keyed by Values-tab column.
+    change_charge_premium: float = 0.0
+    change_premium_detail: Dict[str, object] = field(default_factory=dict)
+
     # ── DB Option Change (CalcEngine BW..CU) ──
     db_option: str = ""                  # Death-benefit option after any change
     # Keyed by the RERUN display column name (e.g. "Prev DBO", "Change Type").

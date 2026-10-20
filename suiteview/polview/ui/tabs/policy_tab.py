@@ -1,6 +1,6 @@
 """
-Policy tab – three-column policy detail view (Policy Information,
-Billing & Valuation, Marketing & Loan).
+Policy tab – three untitled columns of policy detail (identification/status,
+billing/participation/valuation, marketing/loan).
 """
 
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout
@@ -14,6 +14,7 @@ from ...models.cl_polrec.policy_translations import (
     translate_entry_code,
     translate_last_entry_code,
     translate_div_option_code,
+    translate_participation_type_code,
     translate_mec_indicator,
     translate_reinsurance_code,
     translate_bill_form_code,
@@ -53,7 +54,8 @@ class PolicyTab(QWidget):
     Layout:
     - Three columns of name/value pairs:
       Column 1: Policy identification, status, dates, indicators
-      Column 2: Billing/Premium, entry codes, dividend options, valuation tables
+      Column 2: Billing/Premium, entry codes, participation type, nonforfeiture
+                and dividend options, valuation tables
       Column 3: Marketing/Servicing, Class/Base/Sub, Loan info
     """
 
@@ -97,6 +99,7 @@ class PolicyTab(QWidget):
         "mdo": "LH_BAS_POL.USR_RES_CD (first character)",
         "bypass_lapse": "LH_BAS_POL.USR_RES_CD (last character)",
         "mec_status": "LH_TAMRA_7_PY_PER.MEC_STA_CD",
+        "ptp_typ_cd": "LH_COV_PHA.DIV_PTP_TYP_CD (base coverage)",
         "div_2nd_opt": "LH_BAS_POL.DIV_2ND_OPT_CD",
         "mtl_tbl": "LH_COV_PHA.MTL_FCT_TBL_CD",
         "res_its_rt": "LH_COV_PHA.RES_ITS_RT",
@@ -138,24 +141,23 @@ class PolicyTab(QWidget):
         columns_layout = QHBoxLayout()
         columns_layout.setSpacing(8)
 
-        self.col1 = StyledInfoTableGroup("Policy Information", columns=1,
-                                         show_info=True, show_table=False)
+        # Untitled columns: the old group names no longer described their contents.
+        self.col1 = StyledInfoTableGroup("", columns=1, show_info=True, show_table=False)
         self._setup_column1_fields()
         columns_layout.addWidget(self.col1)
 
-        self.col2 = StyledInfoTableGroup("Billing & Valuation", columns=1,
-                                         show_info=True, show_table=False)
+        self.col2 = StyledInfoTableGroup("", columns=1, show_info=True, show_table=False)
         self._setup_column2_fields()
         columns_layout.addWidget(self.col2)
 
-        self.col3 = StyledInfoTableGroup("Marketing & Loan", columns=1,
-                                         show_info=True, show_table=False)
+        self.col3 = StyledInfoTableGroup("", columns=1, show_info=True, show_table=False)
         self._setup_column3_fields()
         columns_layout.addWidget(self.col3)
 
         for group, sources in ((self.col1, self._COL1_SOURCES), (self.col2, self._COL2_SOURCES),
                                (self.col3, self._COL3_SOURCES)):
             group.set_field_sources(sources)
+            group.layout().setContentsMargins(6, 8, 6, 4)
 
         main_layout.addLayout(columns_layout, stretch=1)
 
@@ -206,6 +208,7 @@ class PolicyTab(QWidget):
         c.add_field("MDO", "mdo", 130, 120)
         c.add_field("ByPass Lapse", "bypass_lapse", 130, 120)
         c.add_field("MEC Indicator", "mec_status", 130, 120)
+        c.add_field("Participation Type Code", "ptp_typ_cd", 130, 120)
         c.add_field("Nonforfeiture Option", "nfo_opt", 130, 120)
         c.add_field("Dividend Option", "pri_div_opt", 130, 120)
         c.add_field("Dividend Secondary", "div_2nd_opt", 130, 120)
@@ -345,6 +348,12 @@ class PolicyTab(QWidget):
         c.set_value("mdo", usr_res[:1] if usr_res else "")
         c.set_value("bypass_lapse", usr_res[-1:] if len(usr_res) > 1 else "")
         c.set_value("mec_status", translate_mec_indicator(policy.values.mec_indicator))
+        ptp_raw = policy.field_value("participation_type_code")
+        if ptp_raw is None:
+            c.set_value("ptp_typ_cd", "")
+        else:
+            ptp = str(ptp_raw).strip()
+            c.set_value("ptp_typ_cd", f"{ptp or '(blank)'} - {translate_participation_type_code(ptp)}")
         nfo = policy.dividends.nfo_code
         c.set_value(
             "nfo_opt",

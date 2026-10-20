@@ -33,6 +33,15 @@ SECONDARY_OPTION_LABELS: Dict[str, str] = {
     "1": "Cash", "3": "Deposit at interest", "4": "Paid-up additions", "8": "Loan reduction",
 }
 OYT_OPTIONS = frozenset({"5", "6", "7"})
+OPTION_REDUCE_PREMIUM = "2"
+
+# Bill forms (LH_BAS_POL.BIL_FRM_CD) an illustration can switch to.
+BILL_FORM_DIRECT = "0"
+BILL_FORM_PAC = "G"
+BILL_FORM_LABELS: Dict[str, str] = {BILL_FORM_DIRECT: "Direct bill", BILL_FORM_PAC: "PAC"}
+PAC_REDUCE_PREMIUM_MESSAGE = (
+    "The policy cannot be on PAC billing with the Reduce premium dividend option. "
+    "Choose Direct bill or another dividend option.")
 
 ROLE_BASE = "BASE"
 ROLE_PUA_RIDER = "PUA_RIDER"
@@ -267,6 +276,11 @@ class ParWLInputs:
     secondary_option: Optional[str] = None
     option_changes: List[OptionChange] = field(default_factory=list)
     stop_premiums_at: Optional[date] = None       # last premium due before this date
+    # Illustrate another premium mode (months between premiums: 12, 6, 3, 1) or bill form
+    # (BILL_FORM_DIRECT / BILL_FORM_PAC); None keeps the record's. Both start with the first
+    # premium due on the illustrated schedule (engine ``mode_change``).
+    billing_frequency: Optional[int] = None
+    bill_form: Optional[str] = None
     rpu_at: Optional[date] = None                 # convert to reduced paid-up at this anniversary
     loans: List[DatedAmount] = field(default_factory=list)            # new loans
     loan_repayments: List[DatedAmount] = field(default_factory=list)
@@ -274,6 +288,20 @@ class ParWLInputs:
     pay_loan_interest: bool = False               # pay loan interest in cash instead of capitalizing
     deposit_rate: Optional[float] = None          # dividend deposit interest (default: the record's rate)
     end_age: Optional[int] = None                 # stop at this attained age (default maturity)
+
+
+def reduce_premium_on_pac(policy: ParWLPolicy, inputs: ParWLInputs) -> bool:
+    """Whether the inputs put the Reduce premium dividend option on PAC billing, which is not
+    allowed as a change: option 2 chosen (from the start or as an option change) on a PAC
+    policy, or PAC chosen for a policy on option 2. A record already on both is the record's
+    own state, not refused (the engine notes it; such records exist in CyberLife)."""
+    form = (inputs.bill_form or policy.bill_form or "").strip().upper()
+    if form != BILL_FORM_PAC:
+        return False
+    chosen = inputs.dividend_option == OPTION_REDUCE_PREMIUM or any(
+        c.option == OPTION_REDUCE_PREMIUM for c in inputs.option_changes)
+    on_record = (policy.dividend_option or "").strip() == OPTION_REDUCE_PREMIUM and not inputs.dividend_option
+    return chosen or (on_record and inputs.bill_form == BILL_FORM_PAC)
 
 
 @dataclass
@@ -294,6 +322,7 @@ class ParWLMonth:
     benefit_premium: float = 0.0
     policy_fee: float = 0.0
     premium_billed: float = 0.0
+    premium_frequency: int = 0        # months between premiums of the premium billed (0: none)
     premium_by_dividend: float = 0.0
     premium_paid: float = 0.0
     rider_payment: float = 0.0        # PUA rider premium
@@ -312,7 +341,6 @@ class ParWLMonth:
     dividend_to_additions: float = 0.0
     dividend_to_oyt: float = 0.0
     dividend_to_loan: float = 0.0
-    premium_credit: float = 0.0       # unused premium-reduction credit carried
     # paid-up additions
     additions_bought: float = 0.0
     additions_bought_by_rider: float = 0.0

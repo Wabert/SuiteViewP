@@ -66,6 +66,7 @@ The pipeline is distributed across these modules:
 - `suiteview/illustration/core/solve_level_to_exception.py` - solves the minimum level premium that keeps a GPT policy in force to maturity (riding the GLP exception period); loan-capable via Apply-Prem-to-Loan. Pass `horizon_months` to solve only to a nearer date instead (the Policy Support GLP Exception screen solves to the user's target date, where the answer may be $0)
 - `suiteview/illustration/core/shadow_calc.py` - parallel CCV / shadow account calculation
 - `suiteview/polview/services/glp_exception.py` - PolView GLP exception and policy-support premium forecast consumer
+- `suiteview/polview/services/gep_v2.py` - Policy Support GEP v2: premiums only on each anniversary before the target and on the target monthliversary, each a Max (GPT room just before its date, so its own anniversary's new GLP is excluded) or a sequentially solved, unlimited Min; `no_lapse` projection, tested on each date's AV before the monthly deduction; GEP exception required = Min total - Max total
 - `suiteview/illustration/debug/excel_export.py` - exposes the pipeline field order used for debug export
 - `tools/rerun/rerun_com.py`, `tools/rerun/run_engine_case.py`, `tools/rerun/compare_case.py`, and `tools/rerun/calc_compare_map.py` - RERUN workbook dump, engine dump, and grouped comparison harness
 
@@ -498,6 +499,8 @@ account_value_after_forceout = account_value_before_premium - forceout
 ```
 
 The force-out is capped by available account value (`KX`), disabled when TEFRA conformance is off, for CVAT policies, or once exception mode is on (so an exception premium is not immediately clawed back). Accumulated GLP stops growing at attained age ≥ 100 (`KU`). This happens before projected cash-flow inputs and before the premium stage in both normal illustration timing and CyberLife monthliversary timing.
+
+Two internal-only `IllustrationOptions` (not in the UI; disclosed in the report's non-default settings) serve PolView GEP v2's **Min Prem w Forceouts**: `forceouts_overdraw_account_value=True` drops the `max(0, AV)` cap so the full force-out is taken and the AV goes (further) negative, and `forceout_projected_premiums=False` uses `min(premiums_to_date, policy.premiums_paid_to_date)` — the opening premiums — so premiums paid during the projection are never forced out.
 
 **Premium capping at acceptance** is now the full CalcEngine `NC..NZ` allowance
 chain in `premium_allowance.compute_premium_allowances()` (replacing the old

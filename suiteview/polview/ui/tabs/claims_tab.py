@@ -88,6 +88,25 @@ FIELD_NAMES = [
 
 _MATCH_FIELD = "Policy_Number"
 
+
+def _apply_field_names(df: pd.DataFrame) -> pd.DataFrame:
+    """Name the positional columns of a header-less claim-file read.
+
+    The layout's known fields are named left to right; trailing columns the
+    layout does not document yet are kept as ``Field_NN`` (1-based position).
+    Passing ``names=`` to ``read_csv`` is unsafe here: when a row has more fields
+    than names, pandas silently moves the extra leading columns into the index
+    and every name shifts, so ``Policy_Number`` would read the wrong field.
+    """
+    if len(df.columns) < len(FIELD_NAMES):
+        raise ValueError(
+            f"claim file has {len(df.columns)} field(s) per row; "
+            f"expected at least {len(FIELD_NAMES)}"
+        )
+    extra = [f"Field_{i:02d}" for i in range(len(FIELD_NAMES) + 1, len(df.columns) + 1)]
+    df.columns = FIELD_NAMES + extra
+    return df
+
 _NO_ACCESS_MESSAGE = "Access not available to this file."
 _NO_RECORDS_MESSAGE = "No records for this policy number found in the claim file."
 
@@ -385,18 +404,20 @@ class ClaimsTab(QWidget):
         with open(self._file_path, "r", encoding="latin-1"):
             pass
 
-        df = pd.read_csv(
-            self._file_path,
-            sep=";",
-            header=None,
-            names=FIELD_NAMES,
-            dtype=str,
-            keep_default_na=False,
-            encoding="latin-1",
-            engine="python",
-            on_bad_lines="skip",
-        )
-        return df
+        try:
+            df = pd.read_csv(
+                self._file_path,
+                sep=";",
+                header=None,
+                dtype=str,
+                keep_default_na=False,
+                encoding="latin-1",
+                engine="python",
+                on_bad_lines="skip",
+            )
+        except pd.errors.EmptyDataError:
+            return pd.DataFrame(columns=FIELD_NAMES)
+        return _apply_field_names(df)
 
     @staticmethod
     def _filter_by_policy(df: pd.DataFrame, policy_no: str) -> pd.DataFrame:

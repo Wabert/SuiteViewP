@@ -23,7 +23,7 @@ def main() -> int:
     args = parser.parse_args()
     quote = date.fromisoformat(args.quote) if args.quote else date.today()
     source = get_policy_info(args.policy, company_code=args.company, use_cache=False)
-    basis = gea._prepare_projection(source, date.fromisoformat(args.target), quote)
+    basis = gea.prepare_target_projection(source, date.fromisoformat(args.target), quote)
     policy, months = basis.policy, basis.months_to_target
     output = {
         "policy": {key: getattr(policy, key) for key in (

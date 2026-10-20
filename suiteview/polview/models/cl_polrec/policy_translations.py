@@ -279,6 +279,24 @@ NFO_CODES = {
     "9": "Special Agreement",
 }
 
+# LH_COV_PHA.DIV_PTP_TYP_CD, base coverage only: CyberLife D20 pp.117-118;
+# rider codes have other meanings.
+PARTICIPATION_TYPE_DESCRIPTIONS = {
+    "": "Nonparticipating",
+    "0": "Nonparticipating",
+    "1": "Nonparticipating",
+    "2": "Nonparticipating with coupons",
+    "3": "Nonparticipating with pure endowments",
+    "4": "Nonparticipating with guaranteed annual endowments",
+    **{code: "Nonparticipating with other forms" for code in "5678"},
+    "9": "Participating but divs are paid up",
+    "A": "Participating (dividends)",
+    "B": "Participating with coupons",
+    "C": "Participating with pure endowments",
+    "D": "Participating with guaranteed annual endowments",
+    **{code: "Participating with other forms" for code in "EFGH"},
+}
+
 DB_OPTION_CODES = {
     "1": "Level Death Benefit (Option A)",
     "2": "Increasing Death Benefit (Option B)",
@@ -931,6 +949,11 @@ def translate_suspense_code(code: str) -> str:
 def translate_div_option_code(code: str) -> str:
     """Translate dividend option code to description."""
     return DIV_OPTION_CODES.get(code, code)
+
+
+def translate_participation_type_code(code: str) -> str:
+    """Translate a base-coverage DIV_PTP_TYP_CD; unknown codes are labeled, never assumed nonpar."""
+    return PARTICIPATION_TYPE_DESCRIPTIONS.get(code.strip(), "Unknown")
 
 
 def translate_db_option_code(code: str) -> str:

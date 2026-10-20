@@ -1,7 +1,7 @@
 """CyberLife SQL ctes values section builders."""
 from __future__ import annotations
 
-from suiteview.audit.constants import PARTICIPATION_TYPE_DESCRIPTIONS
+from suiteview.polview.models.cl_polrec.policy_translations import PARTICIPATION_TYPE_DESCRIPTIONS
 from suiteview.audit.cyberlife_sql.ctes import (
     _valuation_date_sql,
 )

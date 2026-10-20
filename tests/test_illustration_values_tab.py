@@ -140,6 +140,7 @@ def test_values_tab_uses_one_content_page_per_group_each_leading_with_locators()
         "Withdrawals",
         "DB Option Change",
         "Increase/Decrease",
+        "Policy Change Premium",
         "Cov After Change",
         "MTP",
         "CTP",

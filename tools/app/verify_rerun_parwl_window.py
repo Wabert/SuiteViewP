@@ -9,7 +9,8 @@ pages and the Report pages, and prints the report to a landscape PDF.
     venv\Scripts\python.exe tools\app\verify_rerun_parwl_window.py ^
         "{\"policy\": \"000282131\", \"company\": \"26\", \"rpu_year\": 30, \"loan_year\": 27, \"loan\": 1000}"
 
-Keys: policy (required), company, region (CKPR), rpu_year, loan_year + loan, out_dir
+Keys: policy (required), company, region (CKPR), rpu_year, loan_year + loan, mode (illustrated
+premium mode: 12, 6, 3 or 1), bill_form ("0" direct, "G" PAC), dividend_option, out_dir
 (default the diagnostics folder). Prints JSON with the workspace facts and PNG paths.
 """
 from __future__ import annotations
@@ -64,6 +65,20 @@ def main() -> None:
         app.processEvents()
         grab(name)
     inputs = workspace.inputs_tab
+    for key, combo in (("mode", inputs.mode_combo), ("bill_form", inputs.bill_form_combo),
+                       ("dividend_option", inputs.option_combo)):
+        if cmd.get(key) is None:
+            continue
+        value = int(cmd[key]) if key == "mode" else str(cmd[key])
+        index = combo.findData(value)
+        if index < 0:
+            raise ValueError(f"{key} {cmd[key]} is not one of the choices.")
+        combo.setCurrentIndex(index)
+    if any(cmd.get(k) is not None for k in ("mode", "bill_form", "dividend_option")):
+        workspace.tabs.setCurrentWidget(inputs)
+        app.processEvents()
+        grab("inputs_changed")
+    pac_warning_shown = not inputs.pac_warning.isHidden()
     if cmd.get("rpu_year"):
         inputs.rpu_check.setChecked(True)
         inputs.rpu_when.setText(str(cmd["rpu_year"]))
@@ -72,6 +87,12 @@ def main() -> None:
         inputs.loan_table.item(0, 1).setText(str(cmd["loan"]))
     window._on_run_values()
     app.processEvents()
+    if workspace.result is None:
+        print(json.dumps({"parwl_workspace_active": active, "pac_warning_shown": pac_warning_shown,
+                          "run_refused": True, "status": window._status_label.text(), "messages": messages,
+                          "screenshots": outputs}, indent=1, default=str))
+        window.close()
+        return
     grab("report")
     report_pdf = out_dir / f"rerun_parwl_{policy}_report.pdf"
     workspace.report_view.write_pdf(str(report_pdf))
@@ -85,6 +106,7 @@ def main() -> None:
     checks = workspace.checks_view.grid.model.get_original_data() if workspace.checks_view.grid.model else None
     print(json.dumps({
         "parwl_workspace_active": active,
+        "pac_warning_shown": pac_warning_shown,
         "status": window._status_label.text(),
         "messages": messages,
         "months": len(result.months) if result else 0,
@@ -92,6 +114,12 @@ def main() -> None:
         "report_pages": len(workspace.report_view.pages),
         "report_status": workspace.report_view.status_label.text(),
         "first_year": vars(result.years[0]) if result and result.years else None,
+        "premium_lines": [line.strip() for line in (workspace.report_view.pages or [[]])[0] if "PREMIUMS OF" in line],
+        "mode_notes": [n for n in (result.notes if result else []) if "mode" in n or "illustrated" in n],
+        "reduce_premium_years": [
+            {"when": str(m.when), "billed": m.premium_billed, "by_dividend": m.premium_by_dividend,
+             "to_premium": m.dividend_to_premium, "notes": m.notes}
+            for m in (result.months if result else []) if m.anniversary and m.dividend_option == "2"][:2],
         "check_counts": checks["Status"].value_counts().to_dict() if checks is not None and len(checks) else {},
         "screenshots": outputs,
     }, indent=1, default=str))

@@ -27,6 +27,14 @@ time. Rules reproduced from CyberLife records (see ``docs/Illustration_UL/RERUN_
   ``principal x r x months / 12`` accrued and capitalized at the anniversary.
 * **Deposits** - ``round(balance x rate, 2)`` credited at the anniversary before the
   new dividend is added.
+* **Premium mode change** - an illustrated mode or bill form other than the record's
+  starts with the first premium due on its schedule (months into the policy year
+  divisible by the new frequency) on or after the paid-to date; premiums before it stay
+  on the record's billing. A forced-premium difference stays with the record's billing.
+* **Reduce premium (option 2)** - the dividend pays only the premium due on the
+  anniversary it is paid (the year's first premium: all of it on annual billing, the
+  first modal premium otherwise); the rest goes to the secondary option that day. The
+  option is refused on PAC billing (``reduce_premium_on_pac``).
 """
 from __future__ import annotations
 
@@ -38,11 +46,16 @@ from typing import Dict, List, Optional, Tuple
 
 from dateutil.relativedelta import relativedelta
 
+from suiteview.illustration.core.ledger_report import MODE_LABELS
 from suiteview.illustration.core.parwl.nsp import interpolated_nsp, net_single_premium
 from suiteview.illustration.core.parwl.premiums import modal_premium, policy_mode, record_premium_date
 from suiteview.illustration.core.parwl.rates import DividendRateSet, ParWLRateError, ParWLRates
 from suiteview.illustration.models.parwl import (
+    BILL_FORM_LABELS,
+    BILL_FORM_PAC,
+    OPTION_REDUCE_PREMIUM,
     OYT_OPTIONS,
+    PAC_REDUCE_PREMIUM_MESSAGE,
     ROLE_BASE,
     ROLE_TERM_RIDER,
     ParWLCoverage,
@@ -51,6 +64,7 @@ from suiteview.illustration.models.parwl import (
     ParWLPolicy,
     ParWLResult,
     ParWLYear,
+    reduce_premium_on_pac,
 )
 
 CENT = Decimal("0.01")
@@ -80,6 +94,10 @@ def add_months(start: date, months: int, day: int) -> date:
 def completed_months(issue_date: date, when: date) -> int:
     delta = relativedelta(when, issue_date)
     return delta.years * 12 + delta.months
+
+
+def _form_label(form: str) -> str:
+    return BILL_FORM_LABELS.get(form.strip().upper(), f"bill form {form}")
 
 
 @dataclass
@@ -158,7 +176,12 @@ class ParWLEngine:
         self.day = self.base.issue_date.day
         self.notes: List[str] = list(policy.notes) + list(rates.notes)
         self._validate()
+        self.frequency = int(self.inputs.billing_frequency or policy.billing_frequency)
+        form = (self.inputs.bill_form or "").strip().upper()
+        # The illustrated bill form when it is not the record's (None: the record's).
+        self.bill_form: Optional[str] = form if form and form != policy.bill_form.strip().upper() else None
         self.premium_adjustment = self._premium_adjustment()
+        self.mode_change = self._mode_change()
         self.rider_units_include_purchase = self._rider_units_rule()
         self.rider_dividends_to_additions = self._rider_dividends_rule()
         self.direct_recognition = self._direct_recognition_phases()
@@ -180,6 +203,19 @@ class ParWLEngine:
                 raise ParWLProjectionError(f"Dividend option {change.option} is not illustrated.")
         if self.inputs.rpu_at is not None and self.inputs.rpu_at < self.policy.valuation_date:
             raise ParWLProjectionError("The reduced paid-up date is before the valuation date.")
+        frequency = self.inputs.billing_frequency
+        if frequency is not None and not policy_mode(self.policy, frequency):
+            raise ParWLProjectionError(f"Premiums every {frequency} months are not illustrated.")
+        form = self.inputs.bill_form
+        if form is not None and form not in BILL_FORM_LABELS:
+            raise ParWLProjectionError(f"Bill form {form} is not illustrated (only "
+                                       f"{', '.join(f'{k} {v}' for k, v in BILL_FORM_LABELS.items())}).")
+        if reduce_premium_on_pac(self.policy, self.inputs):
+            raise ParWLProjectionError(PAC_REDUCE_PREMIUM_MESSAGE)
+        if (self.policy.bill_form.strip().upper() == BILL_FORM_PAC and not self.inputs.bill_form
+                and self._start_option() == OPTION_REDUCE_PREMIUM):
+            self.notes.append("The record has the Reduce premium dividend option on PAC billing; it is illustrated "
+                              "as recorded, but a change to that combination is not allowed.")
 
     def _start_option(self) -> str:
         return (self.inputs.dividend_option or self.policy.dividend_option or "").strip()
@@ -310,6 +346,46 @@ class ParWLEngine:
             f"Billed premium {billed:,.2f} differs from the calculated {calculated:,.2f} by {difference:,.2f}"
             f"{' (forced premium)' if policy.forced_premium else ''}; the difference is kept with the base premium.")
         return difference
+
+    def _mode_change(self) -> Optional[date]:
+        """The first premium due date on the illustrated billing (mode and bill form), when it
+        is not the record's: on or after the paid-to date (premiums due before it stay on the
+        record's billing) at a month of the policy year the illustrated frequency divides."""
+        policy = self.policy
+        record = int(policy.billing_frequency)
+        if self.frequency == record and self.bill_form is None:
+            return None
+        start = policy.valuation_date
+        anchor = max(policy.paid_to_date or start, start)
+        when, index = start, 0
+        while when < anchor or self._month_of_year(when) % self.frequency:
+            index += 1
+            when = add_months(start, index, self.day)
+        if policy.premium_status not in ("22", "32", "21") or policy.is_rpu:
+            return when
+        new = MODE_LABELS[self.frequency].lower()
+        old = MODE_LABELS[record].lower()
+        if self.bill_form is not None:
+            new += f" {_form_label(self.bill_form)}"
+            old += f" {_form_label(policy.bill_form)}"
+        note = f"Premiums are illustrated {new} from {when:%m/%d/%Y} (billed {old} on the record)"
+        if when > anchor:
+            note += f"; the {old} premiums due before then are illustrated as billed"
+        self.notes.append(note + ".")
+        if self.rates.mode_factor(policy_mode(policy, self.frequency), self.bill_form) is None:
+            form = self.bill_form if self.bill_form is not None else policy.bill_form
+            self.notes.append(f"No {MODE_LABELS[self.frequency].lower()} mode factors for bill form {form}: the "
+                              f"{new} premium is the annual premium x {self.frequency}/12.")
+        if self.premium_adjustment:
+            self.notes.append(f"The billed premium's {self.premium_adjustment:,.2f} difference stays with the "
+                              f"{old} premiums; the {new} premium is the calculated one.")
+        return when
+
+    def _billing_on(self, when: date) -> Tuple[int, Optional[str]]:
+        """(months between premiums, bill form or None for the record's) of a premium due on ``when``."""
+        if self.mode_change is None or when >= self.mode_change:
+            return self.frequency, self.bill_form
+        return int(self.policy.billing_frequency), None
 
     def _initial_state(self) -> _State:
         policy = self.policy
@@ -455,7 +531,6 @@ class ParWLEngine:
         row.loan_accrued = cents(state.loan.accrued)
         row.loan_unearned = cents(state.loan.unearned)
         row.loan_payoff = self._loan_payoff(state.loan)
-        row.premium_credit = state.premium_credit
         row.cash_value = cents(row.base_cv + row.additions_cv + row.deposits)
         row.surrender_value = cents(max(0.0, row.cash_value - row.loan_payoff))
         row.death_benefit = cents(max(0.0, row.face + row.additions + row.oyt_face + row.term_rider_face
@@ -485,16 +560,11 @@ class ParWLEngine:
             rate = self._deposit_rate()
             row.deposit_interest = cents(state.deposits * rate)
             state.deposits = cents(state.deposits + row.deposit_interest)
-        # 2. premium-reduction credit left from last year goes to the secondary option
-        if state.premium_credit > 0:
-            leftover = state.premium_credit
-            state.premium_credit = 0.0
-            self._apply_secondary(state, leftover, {}, row, "unused premium reduction")
-        # 3. last year's OYT expires at the anniversary; this dividend may buy the next year's
+        # 2. last year's OYT expires at the anniversary; this dividend may buy the next year's
         if state.oyt_expiry is not None and when >= state.oyt_expiry:
             state.oyt_face = 0.0
             state.oyt_expiry = None
-        # 4. dividend for the completed year (none at maturity: the scale ends the year before)
+        # 3. dividend for the completed year (none at maturity: the scale ends the year before)
         self._option_on(state, when)
         row.dividend_option = state.option
         matured = self.base.maturity_date is not None and when >= self.base.maturity_date
@@ -502,9 +572,9 @@ class ParWLEngine:
             self._dividend(state, when, duration, row)
         if row.dividend_to_oyt > 0:
             state.oyt_expiry = add_months(when, 12, self.day)
-        # 5. loan interest
+        # 4. loan interest
         self._loan_anniversary(state, row)
-        # 6. premium status
+        # 5. premium status
         pay_up = self.base.pay_up_date
         if pay_up is not None and when >= pay_up:
             state.premium_paying = False
@@ -769,19 +839,23 @@ class ParWLEngine:
         paid_to = self.policy.paid_to_date
         if paid_to is not None and when < paid_to:
             return False
-        if self._month_of_year(when) % int(self.policy.billing_frequency) != 0:
+        if self._month_of_year(when) % self._billing_on(when)[0] != 0:
             return False
         return True
 
     def _premium(self, state: _State, when: date, row: ParWLMonth) -> None:
-        parts = modal_premium(self.policy, self.rates, when)
-        row.base_premium = cents(parts.base + parts.rounding + (self.premium_adjustment if parts.base else 0.0))
+        frequency, bill_form = self._billing_on(when)
+        parts = modal_premium(self.policy, self.rates, when, frequency, bill_form)
+        on_record = frequency == int(self.policy.billing_frequency) and bill_form is None
+        adjustment = self.premium_adjustment if parts.base and on_record else 0.0
+        row.base_premium = cents(parts.base + parts.rounding + adjustment)
         row.rider_premium = parts.rider
         row.benefit_premium = cents(parts.benefit + parts.extra)
         row.policy_fee = parts.fee
         row.premium_billed = cents(row.base_premium + row.rider_premium + row.benefit_premium + row.policy_fee)
         if row.premium_billed <= 0:
             return
+        row.premium_frequency = frequency
         if state.waiver:
             row.notes = (row.notes + "; " if row.notes else "") + "premium waived"
             return
@@ -789,6 +863,16 @@ class ParWLEngine:
         state.premium_credit = cents(state.premium_credit - credit)
         row.premium_by_dividend = cents(credit)
         row.premium_paid = cents(row.premium_billed - credit)
+
+    def _premium_reduction_leftover(self, state: _State, row: ParWLMonth, why: str) -> None:
+        """Option 2 reduces only the premium due on the anniversary the dividend is paid (the
+        year's first premium); what it does not use goes to the secondary option that day."""
+        leftover = state.premium_credit
+        if leftover <= 0:
+            return
+        state.premium_credit = 0.0
+        row.dividend_to_premium = cents(row.dividend_to_premium - leftover)
+        self._apply_secondary(state, leftover, {}, row, why)
 
     def _rider_payment(self, state: _State, amount: float, when: date, row: ParWLMonth) -> None:
         rider = self.policy.pua_rider
@@ -809,6 +893,7 @@ class ParWLEngine:
     # -- reduced paid-up --------------------------------------------------------------
 
     def _convert_to_rpu(self, state: _State, when: date, row: ParWLMonth) -> None:
+        self._premium_reduction_leftover(state, row, "no premium is due on reduced paid-up")
         values = ParWLMonth(index=row.index, when=when, policy_year=row.policy_year,
                             month_of_year=row.month_of_year, attained_age=row.attained_age, projected=True)
         self._fill_values(state, when, values)
@@ -836,7 +921,6 @@ class ParWLEngine:
         state.deposits = 0.0
         state.oyt_face = 0.0
         state.loan = _Loan(rate=state.loan.rate, in_advance=state.loan.in_advance)
-        state.premium_credit = 0.0
         row.notes = (row.notes + "; " if row.notes else "") + (
             f"Reduced paid-up: net value {net:,.2f} / NSP {nsp:,.3f} = {units:,.3f} units "
             f"({units * self.base.value_per_unit:,.2f} paid-up face)")
@@ -872,6 +956,8 @@ class ParWLEngine:
                 self._convert_to_rpu(state, when, row)
             if self._premium_due(state, when) and when < end:
                 self._premium(state, when, row)
+            if row.anniversary:
+                self._premium_reduction_leftover(state, row, "premium reduction above the year's first premium")
             for amount in payments.get(when, ()):
                 if not state.rpu:
                     self._rider_payment(state, amount, when, row)

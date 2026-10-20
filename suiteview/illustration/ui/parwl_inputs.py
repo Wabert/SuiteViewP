@@ -1,8 +1,8 @@
 """RERUN input screen for participating whole life (par WL) illustrations.
 
 Different from the UL/ISWL inputs: a par WL illustration is driven by the dividend
-option (and its changes), reduced paid-up conversion, policy loans and repayments,
-paid-up additions rider payments and the illustration's end age. Transactions are
+option (and its changes), the premium mode, reduced paid-up conversion, policy loans and
+repayments, paid-up additions rider payments and the illustration's end age. Transactions are
 entered by policy year (the anniversary starting that year) or by monthliversary
 date; ``read_inputs`` validates every row loudly.
 """
@@ -31,15 +31,20 @@ from PyQt6.QtWidgets import (
 )
 
 from suiteview.illustration.models.parwl import (
+    BILL_FORM_LABELS,
     DIVIDEND_OPTION_LABELS,
+    PAC_REDUCE_PREMIUM_MESSAGE,
     SECONDARY_OPTION_LABELS,
     DatedAmount,
     OptionChange,
     ParWLInputs,
     ParWLPolicy,
+    reduce_premium_on_pac,
 )
 
 from .inputs_tab import ExcelTableWidget, NavigationDelegate
+from .policy_snapshot_widgets import MODE_CHOICES, MODE_NAMES
+from .policy_tab import RATE_WARNING_STYLE
 from .styles import (
     GROUP_STYLE,
     INPUT_CAPTION_STYLE,
@@ -65,7 +70,7 @@ def _add_months(start: date, months: int, day: int) -> date:
 
 
 class ParWLInputsTab(QWidget):
-    """Par WL illustration inputs: dividends, reduced paid-up, loans, PUA rider payments."""
+    """Par WL illustration inputs: dividends, premium mode, reduced paid-up, loans, PUA rider payments."""
 
     inputs_changed = pyqtSignal()
 
@@ -93,6 +98,7 @@ class ParWLInputsTab(QWidget):
         left = QVBoxLayout()
         left.setSpacing(10)
         left.addWidget(self._build_dividend_group())
+        left.addWidget(self._build_premium_group())
         left.addWidget(self._build_rpu_group())
         left.addWidget(self._build_duration_group())
         left.addStretch(1)
@@ -174,6 +180,44 @@ class ParWLInputsTab(QWidget):
         layout.addWidget(self._caption("Option changes (policy year or date, option code)"), 5, 0, 1, 2)
         self.option_table = self._table(["Year / Date", "Option", "Secondary"], rows=5)
         layout.addWidget(self.option_table, 6, 0, 1, 2)
+        return group
+
+    def _build_premium_group(self) -> QGroupBox:
+        group = self._group("Premiums")
+        layout = QGridLayout(group)
+        layout.setContentsMargins(10, 18, 10, 10)
+        layout.addWidget(self._caption("Premium mode"), 0, 0)
+        self.mode_combo = QComboBox()
+        self.mode_combo.setStyleSheet(INPUT_COMBO_STYLE)
+        for label, frequency in MODE_CHOICES:
+            self.mode_combo.addItem(label, frequency)
+        self.mode_combo.setToolTip(
+            "The premium mode the illustration uses (current and guaranteed). A new mode starts with\n"
+            "its first due date on or after the paid-to date; premiums due before then stay as billed.")
+        self.mode_combo.currentIndexChanged.connect(lambda *_: self.inputs_changed.emit())
+        layout.addWidget(self.mode_combo, 0, 1)
+        layout.addWidget(self._caption("Billing"), 1, 0)
+        self.bill_form_combo = QComboBox()
+        self.bill_form_combo.setStyleSheet(INPUT_COMBO_STYLE)
+        self.bill_form_combo.addItem("As billed", None)
+        for form, label in BILL_FORM_LABELS.items():
+            self.bill_form_combo.addItem(label, form)
+        self.bill_form_combo.setToolTip(
+            "The bill form the illustration uses; it changes with the premium mode, and its mode\n"
+            "factors and policy fee price the premium. PAC cannot be used with the Reduce premium option.")
+        self.bill_form_combo.currentIndexChanged.connect(lambda *_: self.inputs_changed.emit())
+        layout.addWidget(self.bill_form_combo, 1, 1)
+        layout.setColumnStretch(1, 1)
+        self.mode_note = QLabel("")
+        self.mode_note.setStyleSheet(NOT_APPLICABLE_STYLE)
+        self.mode_note.setWordWrap(True)
+        layout.addWidget(self.mode_note, 2, 0, 1, 2)
+        self.pac_warning = QLabel(PAC_REDUCE_PREMIUM_MESSAGE)
+        self.pac_warning.setStyleSheet(RATE_WARNING_STYLE)
+        self.pac_warning.setWordWrap(True)
+        self.pac_warning.hide()
+        layout.addWidget(self.pac_warning, 3, 0, 1, 2)
+        self.inputs_changed.connect(self._refresh_pac_warning)
         return group
 
     def _build_rpu_group(self) -> QGroupBox:
@@ -269,6 +313,7 @@ class ParWLInputsTab(QWidget):
         self.deposit_rate.clear()
         self.deposit_rate.setPlaceholderText(
             f"{policy.deposit_rate * 100:.3f} (record)" if policy.deposit_rate is not None else "not on record")
+        self._load_mode(policy)
         for table in (self.option_table, self.loan_table, self.repay_table, self.rider_table):
             table.blockSignals(True)
             table.clearContents()
@@ -296,6 +341,50 @@ class ParWLInputsTab(QWidget):
         else:
             self.rider_note.setText(f"Payments buy paid-up additions on {rider.plancode} at its PUI rates.")
         self.end_age.setValue(0)
+        self._refresh_pac_warning()
+
+    def _load_mode(self, policy: ParWLPolicy) -> None:
+        record = MODE_NAMES.get(policy.billing_frequency, f"every {policy.billing_frequency} months")
+        form = policy.bill_form.strip().upper()
+        form_text = f"{form} ({BILL_FORM_LABELS[form]})" if form in BILL_FORM_LABELS else form or "(blank)"
+        self.mode_combo.setCurrentIndex(0)
+        self.mode_combo.setItemText(0, f"As billed ({record})")
+        self.bill_form_combo.setCurrentIndex(0)
+        self.bill_form_combo.setItemText(0, f"As billed ({BILL_FORM_LABELS.get(form, f'bill form {form_text}')})")
+        paying = policy.premium_status in ("22", "32", "21") and not policy.is_rpu
+        self.mode_combo.setEnabled(paying)
+        self.bill_form_combo.setEnabled(paying)
+        if not paying:
+            self.mode_note.setText("Not applicable - no further premiums are due on this policy.")
+            return
+        paid_to = f", paid to {policy.paid_to_date:%m/%d/%Y}" if policy.paid_to_date else ""
+        self.mode_note.setText(
+            f"Record: {record.lower()} {policy.modal_premium:,.2f}, bill form {form_text}{paid_to}.")
+
+    def _screen_billing(self):
+        """(billing_frequency, bill_form) chosen on the screen; None where the record's is kept."""
+        policy = self._policy
+        frequency = self.mode_combo.currentData()
+        form = self.bill_form_combo.currentData()
+        return (frequency if frequency != policy.billing_frequency else None,
+                form if form != policy.bill_form.strip().upper() else None)
+
+    def _refresh_pac_warning(self) -> None:
+        """Show the PAC / Reduce premium conflict as soon as the screen makes it."""
+        if self._policy is None:
+            self.pac_warning.hide()
+            return
+        option = self.option_combo.currentData()
+        changes = []
+        for row in range(self.option_table.rowCount()):
+            item = self.option_table.item(row, 1)
+            code = item.text().strip()[:1] if item else ""
+            if code:
+                changes.append(OptionChange(self._policy.issue_date, code))
+        frequency, form = self._screen_billing()
+        inputs = ParWLInputs(dividend_option=option if option != self._policy.dividend_option else None,
+                             option_changes=changes, billing_frequency=frequency, bill_form=form)
+        self.pac_warning.setVisible(reduce_premium_on_pac(self._policy, inputs))
 
     # -- reading ----------------------------------------------------------------------
 
@@ -372,11 +461,14 @@ class ParWLInputsTab(QWidget):
             deposit_rate = self._amount(self.deposit_rate.text(), "Deposit interest %") / 100.0
             if not 0 <= deposit_rate < 0.25:
                 raise ParWLInputError("Deposit interest %: enter a percentage such as 3.5.")
-        return ParWLInputs(
+        frequency, bill_form = self._screen_billing()
+        inputs = ParWLInputs(
             dividends=self.dividends_on.isChecked(),
             dividend_option=option if option != self._policy.dividend_option else None,
             secondary_option=self.secondary_combo.currentData() or None,
             option_changes=self._option_changes(),
+            billing_frequency=frequency,
+            bill_form=bill_form,
             rpu_at=rpu_at,
             loans=self._dated_amounts(self.loan_table, "New loans"),
             loan_repayments=self._dated_amounts(self.repay_table, "Loan repayments"),
@@ -385,3 +477,6 @@ class ParWLInputsTab(QWidget):
             deposit_rate=deposit_rate,
             end_age=self.end_age.value() or None,
         )
+        if reduce_premium_on_pac(self._policy, inputs):
+            raise ParWLInputError(PAC_REDUCE_PREMIUM_MESSAGE)
+        return inputs

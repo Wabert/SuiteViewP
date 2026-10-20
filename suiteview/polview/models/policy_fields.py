@@ -119,6 +119,7 @@ FIELD_SPECS: tuple[FieldSpec, ...] = (
     _spec("monthly_duration", "LH_POL_MVRY_VAL", "POL_DUR_NBR", "int", applies_to=("Adv", "ISWL"), required=False),
     _spec("stored_cv_low_duration", "LH_COV_PHA", "LOW_DUR_PER", "int", required=False),
     _spec("major_line_of_business", "LH_COV_PHA", "MAJ_LIN_OF_BUS_CD", default="", required=False),
+    _spec("participation_type_code", "LH_COV_PHA", "DIV_PTP_TYP_CD", required=False),
     _spec("mortality_factor_table", "LH_COV_PHA", "MTL_FCT_TBL_CD", default="", required=False),
     _spec("mortality_fund_code", "LH_COV_PHA", "MTL_FUN_CD", default="", required=False),
     _spec("nsp_extended_insurance_table", "LH_COV_PHA", "NSP_EI_TBL_CD", default="", required=False),

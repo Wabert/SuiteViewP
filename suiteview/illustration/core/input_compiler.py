@@ -8,6 +8,10 @@ from dateutil.relativedelta import relativedelta
 from suiteview.illustration.models.input_set import IllustrationInputSet, TransactionKind
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 
+# DatedTransaction.subtype of a locked policy-change premium (guaranteed replay of
+# core/change_charge_premium.py); compiled apart from the month's premium.
+CHANGE_CHARGE_SUBTYPE = "change_charge"
+
 
 @dataclass
 class DatedCashFlow:
@@ -35,6 +39,9 @@ class CompiledMonthInputs:
     loan_repayment: float = 0.0
     withdrawal: float = 0.0          # net-basis request (RERUN AX — cash to client)
     withdrawal_gross: float = 0.0    # gross-basis request (amount leaving the AV)
+    # Locked policy-change premium replayed from the current side
+    # (core/change_charge_premium.py), applied before the month's policy change.
+    change_charge_premium: float = 0.0
     shadow_prior_period_premium: float = 0.0
     shadow_bucketed_prior_period_premium: float = 0.0
     # Bucketed to a policy anniversary but received in the previous policy year
@@ -160,7 +167,9 @@ def _compile_dated_transactions(
                 amount=entry.amount,
                 subtype=entry.subtype,
             ))
-        if entry.kind == TransactionKind.PREMIUM:
+        if entry.kind == TransactionKind.PREMIUM and entry.subtype == CHANGE_CHARGE_SUBTYPE:
+            month_inputs.change_charge_premium += entry.amount
+        elif entry.kind == TransactionKind.PREMIUM:
             metadata = entry.metadata or {}
             if metadata.get("scheduled_current_year"):
                 month_inputs.scheduled_premium = (

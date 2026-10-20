@@ -50,6 +50,7 @@ from suiteview.illustration.models.parwl import (
     ParWLInputs,
     ParWLLoan,
     ParWLPolicy,
+    reduce_premium_on_pac,
 )
 from suiteview.polview.models.policy_sections.dividends import decode_month_year
 
@@ -351,14 +352,94 @@ def test_deposit_option_credits_interest_before_the_new_dividend():
     assert row.deposits == round(2470.27 + row.deposit_interest + row.dividend_total - row.dividend_rider, 2)
 
 
-def test_premium_reduction_and_option_changes():
+def test_premium_reduction_pays_only_the_first_premium_of_the_year():
+    # monthly direct bill: the dividend pays the anniversary premium; the rest goes to secondary option 3
     inputs = ParWLInputs(dividend_option="2", option_changes=[OptionChange(date(2028, 1, 1), "1")])
-    result = ParWLEngine(make_policy(), make_rates(), inputs).run()
+    result = ParWLEngine(make_policy(bill_form="0"), make_rates(), inputs).run()
     row = next(m for m in result.months if m.when == NEXT)
-    assert row.dividend_to_premium == round(row.dividend_total - row.dividend_rider, 2) and row.premium_paid == 0.0
+    rest = round(row.dividend_total - row.dividend_rider - 219.00, 2)
+    assert (row.premium_billed, row.premium_by_dividend, row.premium_paid) == (219.00, 219.00, 0.0)
+    assert row.dividend_to_premium == 219.00 and row.dividend_to_deposit == rest > 0
+    assert row.deposits == rest
+    assert f"{rest:,.2f} to secondary option 3 (premium reduction above the year's first premium)" in row.notes
+    after = next(m for m in result.months if m.when == date(2027, 3, 13))
+    assert (after.premium_by_dividend, after.premium_paid) == (0.0, 219.00)   # later premiums are paid in full
     later = next(m for m in result.months if m.when == date(2028, 2, 13))
     assert later.dividend_option == "1"
     assert later.dividend_cash == round(later.dividend_total - later.dividend_rider, 2)
+
+
+def test_premium_reduction_on_annual_billing_and_with_no_premium_due():
+    annual = make_policy(bill_form="0", billing_frequency=12, modal_premium=2576.00)
+    result = ParWLEngine(annual, make_rates(), ParWLInputs(dividend_option="2")).run()
+    row = next(m for m in result.months if m.when == NEXT)
+    assert (row.premium_by_dividend, row.premium_paid, row.dividend_to_premium) == (2576.00, 0.0, 2576.00)
+    assert row.dividend_to_deposit == round(row.dividend_total - row.dividend_rider - 2576.00, 2)
+    # reduced paid-up at the anniversary: no premium is due, the whole dividend goes to the secondary option
+    rpu = ParWLEngine(annual, make_rates(), ParWLInputs(dividend_option="2", rpu_at=NEXT)).run()
+    row = next(m for m in rpu.months if m.when == NEXT)
+    assert row.rpu and row.dividend_to_premium == 0.0 and row.premium_paid == 0.0
+    assert "(no premium is due on reduced paid-up)" in row.notes
+
+
+def test_reduce_premium_is_refused_on_pac_billing():
+    pac = make_policy()                                                    # bill form G
+    for inputs in (ParWLInputs(dividend_option="2"), ParWLInputs(option_changes=[OptionChange(NEXT, "2")])):
+        assert reduce_premium_on_pac(pac, inputs)
+        with pytest.raises(ParWLProjectionError, match="cannot be on PAC billing with the Reduce premium"):
+            ParWLEngine(pac, make_rates(), inputs)
+    assert not reduce_premium_on_pac(pac, ParWLInputs(dividend_option="2", bill_form="0"))
+    direct_on_2 = make_policy(bill_form="0", dividend_option="2")
+    assert reduce_premium_on_pac(direct_on_2, ParWLInputs(bill_form="G"))
+    assert not reduce_premium_on_pac(direct_on_2, ParWLInputs(bill_form="G", dividend_option="4"))
+    # a record already on option 2 and PAC is illustrated as recorded, with a note
+    engine = ParWLEngine(make_policy(dividend_option="2", loans=()), make_rates())
+    assert any("illustrated as recorded, but a change to that combination is not allowed" in note
+               for note in engine.notes)
+
+
+def test_bill_form_change_prices_premiums_on_its_mode_factors():
+    rates = make_rates()
+    rates.form_mode_factors = {"0": (ModeFactors("DIR", "M", 0.09, 0.09, 0.0, "0"),
+                                     ModeFactors("DIR", "A", 1.0, 1.0, 0.0, "0"))}
+    result = ParWLEngine(make_policy(loans=()), rates, ParWLInputs(bill_form="0")).run()
+    # direct monthly from the paid-to date: 2,576.00 x 0.09, without the PAC premium's forced 0.04
+    assert _billed(result.months, 2) == [(date(2026, 10, 13), 231.84, 1), (date(2026, 11, 13), 231.84, 1)]
+    assert any("illustrated monthly Direct bill from 10/13/2026 (billed monthly PAC on the record)" in n
+               for n in result.notes)
+    with pytest.raises(ParWLProjectionError, match="Bill form H is not illustrated"):
+        ParWLEngine(make_policy(), rates, ParWLInputs(bill_form="H"))
+
+
+def _billed(months, count):
+    return [(m.when, m.premium_billed, m.premium_frequency) for m in months if m.premium_billed][:count]
+
+
+def test_premium_mode_change_starts_on_the_new_modes_schedule():
+    # monthly 219.00 (forced; 218.96 calculated) paid to 10/13/2026 -> annual from the 02/13/2027 anniversary
+    result = ParWLEngine(make_policy(loans=()), make_rates(), ParWLInputs(billing_frequency=12)).run()
+    assert _billed(result.months, 6) == [
+        (date(2026, 10, 13), 219.0, 1), (date(2026, 11, 13), 219.0, 1), (date(2026, 12, 13), 219.0, 1),
+        (date(2027, 1, 13), 219.0, 1), (NEXT, 2576.0, 12), (date(2028, 2, 13), 2576.0, 12)]
+    assert _billed(result.guaranteed_months, 6) == _billed(result.months, 6)
+    assert result.years[1].premium == 2576.0
+    assert any("illustrated annual from 02/13/2027 (billed monthly on the record); the monthly premiums due "
+               "before then are illustrated as billed" in n for n in result.notes)
+    assert any("0.04 difference stays with the monthly premiums" in n for n in result.notes)
+
+
+def test_premium_mode_without_mode_factors_and_the_record_mode():
+    # quarterly starts at month 9 (11/13/2026); the fixture has no Q factors: 2,576.00 x 3 / 12
+    result = ParWLEngine(make_policy(loans=()), make_rates(), ParWLInputs(billing_frequency=3)).run()
+    assert _billed(result.months, 3) == [(date(2026, 10, 13), 219.0, 1), (date(2026, 11, 13), 644.0, 3),
+                                         (NEXT, 644.0, 3)]
+    assert any("No quarterly mode factors for bill form G" in n for n in result.notes)
+    same = ParWLEngine(make_policy(loans=()), make_rates(), ParWLInputs(billing_frequency=1)).run()
+    plain = ParWLEngine(make_policy(loans=()), make_rates()).run()
+    assert [m.premium_paid for m in same.months] == [m.premium_paid for m in plain.months]
+    assert same.notes == plain.notes
+    with pytest.raises(ParWLProjectionError, match="every 2 months"):
+        ParWLEngine(make_policy(), make_rates(), ParWLInputs(billing_frequency=2))
 
 
 def test_reduced_paid_up_conversion_uses_net_value_over_nsp():
@@ -550,6 +631,63 @@ def test_workspace_runs_and_shows_monthly_values_and_the_annual_ledger(qtbot):
         workspace.run()
 
 
+def test_inputs_premium_mode_runs_and_shows_each_premiums_mode(qtbot):
+    from suiteview.illustration.ui.parwl_inputs import ParWLInputsTab
+    from suiteview.illustration.ui.parwl_workspace import ParWLWorkspace
+
+    workspace = ParWLWorkspace()
+    qtbot.addWidget(workspace)
+    workspace.load(ParWLBasis(make_policy(loans=()), make_rates()))
+    combo = workspace.inputs_tab.mode_combo
+    assert combo.isEnabled() and combo.itemText(0) == "As billed (Monthly)"
+    assert "monthly 219.00, bill form G (PAC), paid to 10/13/2026" in workspace.inputs_tab.mode_note.text()
+    assert workspace.inputs_tab.bill_form_combo.itemText(0) == "As billed (PAC)"
+    assert workspace.inputs_tab.read_inputs().billing_frequency is None
+    combo.setCurrentIndex(combo.findData(1))                          # the record's mode is no change
+    assert workspace.inputs_tab.read_inputs().billing_frequency is None
+    combo.setCurrentIndex(combo.findData(12))
+    result = workspace.run()
+    assert result.inputs.billing_frequency == 12
+    frame = workspace.values_tab._grids["Premiums"].model.get_original_data()
+    modes = dict(zip(frame["Date"], frame["Mode"]))
+    assert (modes["09/13/2026"], modes["10/13/2026"], modes["02/13/2027"], modes["03/13/2027"]) == (
+        "", "Monthly", "Annual", "")
+
+    tab = ParWLInputsTab()
+    qtbot.addWidget(tab)
+    tab.load_policy(make_policy(premium_status="41", paid_to_date=date(2023, 2, 13), modal_premium=0.0))
+    assert not tab.mode_combo.isEnabled() and tab.mode_note.text().startswith("Not applicable")
+    assert not tab.bill_form_combo.isEnabled()
+    assert tab.read_inputs().billing_frequency is None
+
+
+def test_inputs_warn_and_refuse_reduce_premium_on_pac(qtbot):
+    from suiteview.illustration.models.parwl import PAC_REDUCE_PREMIUM_MESSAGE
+    from suiteview.illustration.ui.parwl_inputs import ParWLInputError, ParWLInputsTab
+
+    tab = ParWLInputsTab()
+    qtbot.addWidget(tab)
+    tab.load_policy(make_policy())                                         # PAC, option 4
+    assert tab.pac_warning.isHidden()
+    tab.option_combo.setCurrentIndex(tab.option_combo.findData("2"))
+    assert not tab.pac_warning.isHidden() and tab.pac_warning.text() == PAC_REDUCE_PREMIUM_MESSAGE
+    with pytest.raises(ParWLInputError, match="cannot be on PAC billing with the Reduce premium"):
+        tab.read_inputs()
+    tab.bill_form_combo.setCurrentIndex(tab.bill_form_combo.findData("0"))
+    assert tab.pac_warning.isHidden()
+    inputs = tab.read_inputs()
+    assert (inputs.dividend_option, inputs.bill_form) == ("2", "0")
+    tab.bill_form_combo.setCurrentIndex(tab.bill_form_combo.findData("G"))   # PAC chosen again
+    assert not tab.pac_warning.isHidden()
+    tab.option_combo.setCurrentIndex(tab.option_combo.findData("4"))
+    assert tab.pac_warning.isHidden()
+    tab.option_table.item(0, 0).setText("27")                                # an option change to 2 on PAC
+    tab.option_table.item(0, 1).setText("2")
+    assert not tab.pac_warning.isHidden()
+    tab.load_policy(make_policy())
+    assert tab.pac_warning.isHidden()
+
+
 def test_policy_page_warns_when_an_inforce_rate_check_differs(qtbot):
     from suiteview.illustration.core.inforce_check import CheckLine
     from suiteview.illustration.ui.parwl_workspace import ParWLWorkspace
@@ -653,6 +791,16 @@ def test_report_columns_and_statements_follow_the_policy():
     assert "DIVIDENDS ON DEPOSIT:  $1,200.00" in cover
     _result, guaranteed, _pages = _report_pages(plain, ParWLInputs(dividends=False))
     assert guaranteed.subtitle == "GUARANTEED VALUES ONLY - NO DIVIDENDS ILLUSTRATED"
+
+
+def test_report_states_the_premiums_of_each_mode():
+    _result, report, _pages = _report_pages(make_policy(loans=()), ParWLInputs(billing_frequency=12))
+    lines = report.assumption_lines
+    assert lines[0] == "MONTHLY PREMIUMS OF $219.00 FROM 10/13/2026 (YEAR 25) THROUGH 01/13/2027 (YEAR 25)"
+    assert lines[1].startswith("ANNUAL PREMIUMS OF $2,576.00 FROM 02/13/2027 (YEAR 26) THROUGH ")
+    _result, plain, _pages = _report_pages(make_policy(loans=()))
+    assert plain.assumption_lines[0].startswith("MONTHLY PREMIUMS OF $219.00 FROM 10/13/2026 (YEAR 25) THROUGH ")
+    assert not plain.assumption_lines[1].startswith("ANNUAL")
 
 
 def test_report_prints_a_landscape_pdf(qtbot, tmp_path, monkeypatch):

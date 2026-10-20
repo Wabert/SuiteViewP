@@ -6,7 +6,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import pytest
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QCheckBox, QGroupBox
-from suiteview.audit.constants import PARTICIPATION_TYPE_DESCRIPTIONS
+from suiteview.polview.models.cl_polrec.policy_translations import PARTICIPATION_TYPE_DESCRIPTIONS
 from suiteview.audit.cyberlife_query import participation_predicate, build_cyberlife_sql
 from suiteview.audit.tabs.adv_tab import AdvTab
 from suiteview.audit.tabs.benefits_tab import BenefitsTab

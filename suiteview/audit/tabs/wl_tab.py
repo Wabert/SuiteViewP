@@ -7,10 +7,9 @@ from PyQt6.QtWidgets import (
     QCheckBox, QHBoxLayout, QListWidget, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
 
-from ..constants import (
-    DIVIDEND_OPTION_ITEMS, NFO_CODE_ITEMS, PARTICIPATION_CODES,
-    PARTICIPATION_TYPE_DESCRIPTIONS,
-)
+from suiteview.polview.models.cl_polrec.policy_translations import PARTICIPATION_TYPE_DESCRIPTIONS
+
+from ..constants import DIVIDEND_OPTION_ITEMS, NFO_CODE_ITEMS, PARTICIPATION_CODES
 from ._styles import make_checkbox, make_listbox, connect_checkbox_listbox
 
 _FONT = QFont("Segoe UI", 9)

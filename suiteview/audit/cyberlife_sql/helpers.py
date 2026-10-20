@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from suiteview.polview.models.cl_polrec.policy_translations import PARTICIPATION_TYPE_DESCRIPTIONS
+
 from ..constants import (
     PARTICIPATION_CODES,
-    PARTICIPATION_TYPE_DESCRIPTIONS,
     TERMINATION_LAST_ENTRY_CODES,
 )
 from ..sql_helpers import esc, escape_like_literal, in_list

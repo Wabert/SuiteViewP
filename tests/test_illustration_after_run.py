@@ -10,7 +10,9 @@ from PyQt6.QtWidgets import QApplication, QMessageBox
 
 import suiteview.illustration.ui.main_window as mw
 from suiteview.illustration.core.business_mode import BUSINESS_MODE_ENV
+from suiteview.illustration.core.decrease_charge_check import BLOCKED_TITLE
 from suiteview.illustration.core.rate_loader import RateLookupError
+from suiteview.illustration.core.run_service import ReportResult
 from suiteview.illustration.ui.main_window import RUN_FAILED_MESSAGE, IllustrationWindow
 
 _QT_APP = None
@@ -26,10 +28,10 @@ def window(monkeypatch):
     win.close()
 
 
-def _result():
+def _result(report=None):
     return SimpleNamespace(
         abr_quote=None, policy=object(), current=[object()], scenario=None,
-        guaranteed=None, report=SimpleNamespace(report=object(), guaranteed_error=None),
+        guaranteed=None, report=report or ReportResult(report=object()),
         lumpsum_result=None, status="Values ready", warnings=())
 
 
@@ -39,6 +41,28 @@ def test_run_lands_on_the_report_tab(window, monkeypatch):
     window.tabs.setCurrentWidget(window.policy_tab)
     window._render_run_result(_result())
     assert window.tabs.currentWidget() is window.report_tab
+
+
+def test_blocked_run_shows_values_and_explains_why_there_is_no_report(window, monkeypatch):
+    shown = []
+    projected = []
+    monkeypatch.setattr(window.values_tab, "display_projection",
+                        lambda *a, **k: projected.append(a))
+    monkeypatch.setattr(window.report_tab, "display_report",
+                        lambda *a, **k: pytest.fail("a blocked run must not display a report"))
+    monkeypatch.setattr(QMessageBox, "warning",
+                        lambda parent, title, text: shown.append((title, text)))
+    reason = "The illustration report was not generated.\n\nPSC exceeds the surrender value."
+
+    window._render_run_result(_result(ReportResult(None, blocked_reason=reason)))
+
+    assert projected
+    assert shown == [(BLOCKED_TITLE, reason)]
+    assert window.tabs.currentWidget() is window.report_tab
+    assert window.report_tab.guaranteed_warning.isVisibleTo(window.report_tab)
+    assert reason in window.report_tab.guaranteed_warning.text()
+    assert not window.report_tab.print_pdf_btn.isEnabled()
+    assert window.report_tab.capture_session_state() == {"kind": "blocked", "reason": reason}
 
 
 def _fail_run(window, monkeypatch, exc):

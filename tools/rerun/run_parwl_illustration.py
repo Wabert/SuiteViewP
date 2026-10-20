@@ -14,8 +14,9 @@ Usage:
 
 ``--inputs`` is JSON (or ``@file``) with any ParWLInputs field: ``dividends``,
 ``dividend_option``, ``secondary_option``, ``option_changes`` ([{"when", "option",
-"secondary"}]), ``rpu_at``, ``loans`` / ``loan_repayments`` / ``rider_payments``
-([{"when", "amount"}]), ``pay_loan_interest``, ``deposit_rate``, ``end_age``.
+"secondary"}]), ``billing_frequency`` (12, 6, 3 or 1), ``bill_form`` ("0" direct, "G" PAC), ``rpu_at``,
+``loans`` / ``loan_repayments`` / ``rider_payments`` ([{"when", "amount"}]), ``pay_loan_interest``,
+``deposit_rate``, ``end_age``.
 Dates are ISO (YYYY-MM-DD).
 """
 from __future__ import annotations

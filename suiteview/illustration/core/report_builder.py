@@ -58,6 +58,12 @@ from suiteview.illustration.models.plancode_config import load_plancode
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 from suiteview.polview.models.cl_polrec.policy_translations import rate_class_description
 from suiteview.illustration.core.report_specs import ReportFacts, ReportSectionSpec, RequestLineSpec
+from suiteview.illustration.core.request_limits import (
+    KIND_LOAN,
+    KIND_VARIABLE_LOAN,
+    KIND_WITHDRAWAL,
+    reduced_requests,
+)
 from suiteview.illustration.core.summary_results import partial_surrender_charge
 from suiteview.illustration.models.index_strategies import (
     FIXED_FUND_ID,
@@ -446,6 +452,9 @@ class IllustrationReport:
     # built; the Report tab appends the page only when the user opts in.
     expense_rows: List[ExpenseRow] = field(default_factory=list)
     footnote_legends: List[str] = field(default_factory=list)
+    # Always printed under the ledger: what the PROCEEDS column shows, and that
+    # restricted requests were reduced to the available surrender value.
+    proceeds_explanation: str = ""
     # (policy year, start date) for each NEW 7-pay test period the projection
     # starts — a TAMRA material change restarts the 7-pay window.
     seven_pay_restarts: List[tuple] = field(default_factory=list)
@@ -530,7 +539,11 @@ def _annualize(
         exception = sum(m.gp_exception_prem for m in months)
         withdrawals = sum(m.gross_withdrawal for m in months)
         loans = sum(m.applied_new_loan for m in months)
-        guideline_capped = any(m.premium_capped_by_guideline for m in months)
+        # The Monthly Deduction premium is capped at the guideline room in the
+        # exception phase, outside the scheduled-premium chain, so it carries
+        # its own flag.
+        guideline_capped = any(
+            m.premium_capped_by_guideline or m.md_premium_capped for m in months)
         tamra_capped = any(m.premium_capped_by_tamra for m in months)
 
         # MEC: 7-pay contributions exceed level x year inside the window
@@ -709,8 +722,14 @@ def _request_lines_from_specs(
     results: List[MonthlyState],
     future_inputs: Optional[IllustrationInputSet],
     excess_repayment_as_premium: bool = False,
+    restricted: frozenset = frozenset(),
 ) -> List[str]:
-    """The cover's requested premium / loan / withdrawal lines (AY5..AY32)."""
+    """The cover's requested premium / loan / withdrawal lines (AY5..AY32).
+
+    ``restricted`` holds the ``(request_limits kind, policy year)`` pairs whose
+    request the engine reduced; their withdrawal/loan lines are marked so the
+    reader looks at the Explanation of Proceeds under the ledger.
+    """
     projected = results[1:]
     if not projected:
         return []
@@ -827,6 +846,13 @@ def _request_lines_from_specs(
         )
         premium_entries.append(
             (first_year, f"{billed_label} PREMIUM OF {_money(0.0)} {span}"))
+    for state in projected:
+        if state.change_charge_premium > 0.005 and state.date is not None:
+            premium_entries.append((
+                state.policy_year,
+                f"PREMIUM OF {_money(state.change_charge_premium)} ON "
+                f"{state.date.strftime('%m/%d/%Y')} TO COVER THE PARTIAL SURRENDER "
+                "CHARGE OF THE POLICY CHANGE"))
     premium_entries.sort(key=lambda entry: entry[0])
     lines: List[str] = [text for _year, text in premium_entries]
 
@@ -908,14 +934,17 @@ def _request_lines_from_specs(
             if run["end_year"] != run["start_year"]
             else f"IN POLICY YEAR {run['start_year']}"
         )
-        lines.append(
+        lines.append(_mark_restricted(
             f"{run['mode']} {run['loan_type']} LOAN OF "
-            f"{_money(run['amount'])} {span}")
+            f"{_money(run['amount'])} {span}",
+            restricted, _loan_kind(run["loan_type"]), run["start_year"], run["end_year"]))
     for tx in sorted(forecast_loans, key=lambda item: item.effective_date):
         loan_type = str(tx.metadata.get("loan_type", "fixed")).upper()
-        lines.append(
+        year = _policy_year_of(issue, tx.effective_date)
+        lines.append(_mark_restricted(
             f"ONE-TIME {loan_type} LOAN OF {_money(tx.amount)} "
-            f"ON {tx.effective_date.strftime('%m/%d/%Y')}")
+            f"ON {tx.effective_date.strftime('%m/%d/%Y')}",
+            restricted, _loan_kind(loan_type), year, year))
 
     # Loan repayments are exported as dated modal transactions. Group equal
     # per-payment amounts across consecutive policy years into one assumption.
@@ -973,15 +1002,61 @@ def _request_lines_from_specs(
         key = (year, mode)
         wd_by_year[key] = wd_by_year.get(key, 0.0) + tx.amount
     for year, mode in sorted(wd_by_year):
-        lines.append(
+        lines.append(_mark_restricted(
             f"{mode} WITHDRAWAL OF {_money(wd_by_year[(year, mode)])} "
-            f"IN POLICY YEAR {year}")
+            f"IN POLICY YEAR {year}",
+            restricted, KIND_WITHDRAWAL, year, year))
     for tx in sorted(forecast_withdrawals, key=lambda item: item.effective_date):
         basis = "GROSS" if tx.subtype == "gross" else "NET"
-        lines.append(
+        year = _policy_year_of(issue, tx.effective_date)
+        lines.append(_mark_restricted(
             f"ONE-TIME {basis} WITHDRAWAL OF {_money(tx.amount)} "
-            f"ON {tx.effective_date.strftime('%m/%d/%Y')}")
+            f"ON {tx.effective_date.strftime('%m/%d/%Y')}",
+            restricted, KIND_WITHDRAWAL, year, year))
     return lines
+
+
+# Cover request lines whose amount the engine reduced; the explanation of
+# proceeds below the ledger says why.
+RESTRICTED_REQUEST_SUFFIX = " - RESTRICTED, SEE EXPLANATION OF PROCEEDS"
+
+PROCEEDS_EXPLANATION = (
+    "EXPLANATION OF PROCEEDS: ACTUAL DISTRIBUTIONS FROM THE POLICY (LOANS, WITHDRAWALS "
+    "AND FORCEOUTS) ARE SHOWN IN THE PROCEEDS COLUMN.")
+PROCEEDS_RESTRICTED_EXPLANATION = (
+    " REQUESTED PROCEEDS MARKED AS RESTRICTED WERE REDUCED DUE TO THE AVAILABLE "
+    "SURRENDER VALUE.")
+
+
+def _policy_year_of(issue: Optional[date], when: date) -> Optional[int]:
+    if issue is None:
+        return None
+    return ((when.year - issue.year) * 12 + (when.month - issue.month)) // 12 + 1
+
+
+def _loan_kind(loan_type: str) -> str:
+    return KIND_VARIABLE_LOAN if str(loan_type).upper() == "VARIABLE" else KIND_LOAN
+
+
+def _mark_restricted(line: str, restricted, kind: str,
+                     start_year: Optional[int], end_year: Optional[int]) -> str:
+    if start_year is None or not restricted:
+        return line
+    if any((kind, year) in restricted for year in range(start_year, end_year + 1)):
+        return line + RESTRICTED_REQUEST_SUFFIX
+    return line
+
+
+def _restricted_requests(policy, results, future_inputs) -> frozenset:
+    """``(kind, policy year)`` pairs whose withdrawal/loan request was reduced."""
+    return frozenset(
+        (item.kind, item.policy_year)
+        for item in reduced_requests(policy, future_inputs, results))
+
+
+def proceeds_explanation(any_restricted: bool) -> str:
+    """The always-printed note under the ledger on what the PROCEEDS column shows."""
+    return PROCEEDS_EXPLANATION + (PROCEEDS_RESTRICTED_EXPLANATION if any_restricted else "")
 
 
 def _request_lines(
@@ -989,12 +1064,13 @@ def _request_lines(
     results: List[MonthlyState],
     future_inputs: Optional[IllustrationInputSet],
     excess_repayment_as_premium: bool = False,
+    restricted: frozenset = frozenset(),
 ) -> List[str]:
     """Interpret request-line specs without changing report text."""
 
     spec = RequestLineSpec(
         collect=lambda p, r, f: _request_lines_from_specs(
-            p, r, f, excess_repayment_as_premium),
+            p, r, f, excess_repayment_as_premium, restricted),
         group="requested_activity",
     )
     return spec.render(policy, results, future_inputs)
@@ -1269,6 +1345,8 @@ def non_default_settings_lines(
             (settings.apply_prem_to_loan, "PREMIUMS APPLIED TO REPAY POLICY LOANS FIRST"),
             (settings.apply_excess_repayment_as_premium,
              "LOAN REPAYMENTS ABOVE THE LOAN BALANCE APPLIED AS PREMIUM"),
+            (settings.cover_change_surrender_charge,
+             "PREMIUM APPLIED TO COVER POLICY CHANGE PARTIAL SURRENDER CHARGES"),
             (settings.loan_repay_principal_first,
              "LOAN REPAYMENTS PAY PRINCIPAL BEFORE ACCRUED INTEREST"),
             (not settings.restrict_loans_to_sv, "NEW LOANS NOT LIMITED TO THE SURRENDER VALUE"),
@@ -1276,6 +1354,10 @@ def non_default_settings_lines(
             (not settings.recognize_inforce_exception_period,
              "INFORCE GUIDELINE EXCEPTION PERIOD NOT RECOGNIZED"),
             (not settings.guideline_forceouts, "GUIDELINE FORCE-OUTS SUPPRESSED"),
+            (settings.forceouts_overdraw_account_value,
+             "GUIDELINE FORCE-OUTS TAKEN IN FULL EVEN BELOW ZERO ACCOUNT VALUE"),
+            (not settings.forceout_projected_premiums,
+             "PROJECTED PREMIUMS EXEMPT FROM GUIDELINE FORCE-OUT"),
             (settings.cap_premiums_at_acceptance is not None,
              "PREMIUM ACCEPTANCE CAP OVERRIDDEN"),
         ]
@@ -1748,8 +1830,11 @@ def _build_ul_report_from_facts(
     elif tamra_restricted:
         intro += " HOWEVER, PREMIUMS MAY BE RESTRICTED BY 7-PAY PREMIUM LIMITS."
     report.request_intro = [intro]
+    restricted = _restricted_requests(policy, results, future_inputs)
     report.request_lines = _request_lines(
-        policy, results, future_inputs, options.apply_excess_repayment_as_premium)
+        policy, results, future_inputs, options.apply_excess_repayment_as_premium,
+        restricted)
+    report.proceeds_explanation = proceeds_explanation(bool(restricted))
     if options.apply_prem_to_loan:
         report.request_notes = [_APPLY_PREM_TO_LOAN_NOTE]
 

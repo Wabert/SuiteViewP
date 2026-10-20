@@ -69,12 +69,18 @@ gated too:
   amber banner on the Inputs tab and in the run notice — it never blocks.
 
 Every run also reports withdrawal/loan requests the engine reduced
-(`core/request_limits.py`) in the run notice. Run lands on the Report tab, and an
+(`core/request_limits.py`) in the run notice. On the report cover each reduced
+withdrawal/loan request line ends with "- RESTRICTED, SEE EXPLANATION OF
+PROCEEDS", and the last ledger page always prints the Explanation of Proceeds
+(`report_builder.proceeds_explanation`): actual distributions (loans, withdrawals
+and forceouts) are shown in the PROCEEDS column, plus, when any request was
+reduced, that requested proceeds marked as restricted were reduced due to the
+available surrender value. Run lands on the Report tab, and an
 unexpected failure shows plain text with the detail in the log. The first premium
 row defaults to Billable Prem. Regression: `tests/test_illustration_business_mode.py`,
 `test_illustration_run_gates.py`, `test_illustration_can_illustrate.py`,
 `test_illustration_load_problems.py`, `test_illustration_request_limits.py`,
-`test_illustration_after_run.py`.
+`test_illustration_report.py`, `test_illustration_after_run.py`.
 
 
 ## RERUN ☰ header menu and Plancode Table
@@ -517,6 +523,60 @@ Increase Not Allowed" message). Face changes on or after a DB option change are
 checked where the engine applies them (`_apply_face_amount_change`), because a
 B-to-A change moves the specified amount. Both raise `ShadowFaceIncreaseError`.
 Regression: `tests/test_illustration_shadow_face_increase.py`.
+
+## Face decreases: the surrender value must cover the partial surrender charge
+
+The administration system will not process a specified face decrease, or the
+face reduction of a DB option A to B change, when the surrender value at the
+change cannot cover the partial surrender charge on the decreased units. The
+illustration must not show such a decrease surviving on a no-lapse guarantee
+(UE204564, 250,000 → 100,000: PSC 4,657.50 against a surrender value of
+-7,597.88). The surrender value tested is the one at the change, before it is
+applied: account value after any same-month withdrawal, less the full surrender
+charge on the pre-change units, less policy debt
+(`calc_engine._record_decrease_charge_coverage` →
+`decrease_charge_check.record_charge_coverage`, detail keys `SV Before Change`
+and `PSC Exceeds SV`). Run Values then builds no report and explains why (see
+`RUN_VALUES_FLOW.md` step 5). Withdrawal face reductions keep their own
+max-net-withdrawal limit and are not part of this check.
+Regression: `tests/test_illustration_decrease_charge_check.py`.
+
+### Apply premium needed to cover policy change surrender charge
+
+Inputs tab checkbox under the Face Amount / DB Option Change boxes
+(`IllustrationOptions.cover_change_surrender_charge`, unchecked by default;
+saved with cases). When checked, a month whose face decrease or A to B change
+would fail the check above pays the premium that covers it
+(`calc_engine._apply_change_charge_premium`, `core/change_charge_premium.py`):
+
+1. **Timing** — after the month's withdrawal, before the DB option change and
+   face change (and before the month's regular premium in RERUN order).
+2. **Solve** — the smallest whole-cent net premium after which every change's
+   surrender value covers its partial surrender charge. The month's changes are
+   replayed on a copy of the coverage (`_change_charge_shortfall`); an A to B
+   decrease grows with the account value, so the solve re-tests each step.
+3. **Load** — grossed up for the target/excess/flat premium load
+   (`premium_handler.gross_up_for_premium_load`) against premiums year-to-date.
+4. **Limits** — the gross is tested against the pre-change guideline room (GPT:
+   MAX(GSP, AccumGLP) − (PremTD − WithdrawalTD)), the 7-pay room (TAMRA years
+   1-7) and, for CVAT past year 7 with a deemed cash value, the necessary
+   premium. A premium over any of them raises `ChangeChargePremiumRejectedError`;
+   Run Values shows "Policy Change Premium Not Accepted" and builds nothing.
+5. **Trackers** — the gross premium is added to premiums YTD, premiums to date
+   and cost basis, and folded into the month's gross premium, loads and net
+   premium (so 7-pay accumulation, the shadow account, the DCV roll and the
+   ledger see it). The month's regular premium is tested after it: its 7-pay
+   and NPT room are reduced by it, and its guideline room by PremTD.
+6. **Guaranteed side** — no re-solve: `lock_values` replays it as a
+   `change_charge` premium applied at the same point.
+
+Values tab group **Policy Change Premium** (after Increase/Decrease) shows SV
+before, the largest charge taken, net needed, guideline / 7-pay / NPT room
+(blank where the limit does not apply), gross, load, net, and AV / PremTD /
+cost basis after the premium. The report cover lists the premium with the
+requested premiums. UE204564 (250,000 → 100,000): SV -7,597.88, PSC 4,657.50,
+net 12,255.38, gross 16,340.51. Regression:
+`tests/test_illustration_change_charge_premium.py`.
 
 ## RERUN face decrease before B-to-A option change — pending implementation
 
@@ -1847,8 +1907,11 @@ tables.
   coverage earns its dividend only while its premiums are paid to the anniversary, once
   it is paid up or on reduced paid-up (status 41 14762446, paid to 2023, was paid only its
   additions' dividend).
-- Options: 1 cash, 2 premium reduction (applied to the next premiums, the rest to the
-  secondary option), 3 deposit (interest `round(balance x rate, 2)` credited before
+- Options: 1 cash, 2 premium reduction (the dividend pays only the premium due on the
+  anniversary it is paid - the year's first premium, all of it on annual billing, the
+  first modal premium on semi-annual, quarterly or monthly billing - and the rest goes
+  to the secondary option that day; with no premium due, e.g. paid ahead or converted to
+  reduced paid-up, all of it does), 3 deposit (interest `round(balance x rate, 2)` credited before
   the new dividend), 4 paid-up additions, 5/6/7 OYT (6: the total OYT is limited to the
   base coverage's next-anniversary cash value, the additions' OYT bought first, the
   coverage's unused dividend to the secondary option), 8 loan reduction. The NY PUA
@@ -1874,9 +1937,23 @@ key and NSP basis, and the supplemental benefits as form-number buttons that ope
 same Benefit Detail card as RERUN's UL Policy tab (`policy_tab.show_detail_dialog`).
 
 **Inputs**: current dividend scale on/off; dividend option, secondary option and dated
-option changes; deposit interest; convert to reduced paid-up at a policy year or date;
+option changes; deposit interest; premium mode (As billed, Annual, Semi-annual,
+Quarterly, Monthly) and billing (As billed, Direct bill `0`, PAC `G`), both greyed with a
+note when no premiums are due; convert to reduced
+paid-up at a policy year or date;
 new loans and repayments; pay loan interest in cash; PUA rider payments (bought at PUI
-rates; greyed when the rider has ceased); illustrate to age. Transactions are entered
+rates; greyed when the rider has ceased); illustrate to age. A changed premium mode or
+billing starts with the first premium due on its schedule (a month of the policy year the new
+frequency divides) on or after the paid-to date; premiums due before then stay on the
+record's billing, and a forced-premium difference stays with them. The new modal
+premium uses the plan's `RATE_MODEFACT` row for the illustrated bill form (annual premium x
+months / 12 with a note when there is none). The Reduce premium option (2) cannot be on
+PAC billing: choosing option 2 (or an option change to 2) on a PAC policy, or PAC for a
+policy on option 2, shows a warning on the screen and Run Values refuses it
+(`models.parwl.reduce_premium_on_pac`; a record already on both - CyberLife does not
+enforce the rule - is illustrated with a note). The report's premium assumptions list
+each mode's premiums, and the Values Premiums page shows each premium's mode.
+Transactions are entered
 as a policy year (its anniversary) or a monthliversary date. The guaranteed columns
 are a second run with no dividends. **Values** pages: Summary, Premiums, Dividends,
 Paid-Up Additions, Cash Value, Loans, Deposits & OYT, Death Benefit, with a Current /

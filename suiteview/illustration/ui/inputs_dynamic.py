@@ -1984,6 +1984,19 @@ class DynamicInputsPanel(QWidget):
         changes_row.addWidget(self.table_section, 1)
         outer.addLayout(changes_row)
 
+        self.cover_change_charge_check = QCheckBox(
+            "Apply premium needed to cover policy change surrender charge")
+        apply_input_checkbox_style(self.cover_change_charge_check)
+        self.cover_change_charge_check.setToolTip(
+            "When a face decrease or DB option A to B change assesses a partial "
+            "surrender charge the surrender value cannot cover, pay the premium "
+            "that covers it. The premium is applied after the month's withdrawal "
+            "and before the change, with premium load, and must fit the guideline "
+            "and 7-pay limits; otherwise the illustration cannot run. Unchecked, "
+            "such a decrease stops the illustration report.")
+        self.cover_change_charge_check.setChecked(False)
+        outer.addWidget(self.cover_change_charge_check)
+
         outer.addStretch(1)
 
         self.riders_panel = RiderButtonsPanel(self)
@@ -2120,6 +2133,7 @@ class DynamicInputsPanel(QWidget):
             self.repayment_section, self.face_section, self.dbo_section,
             self.rateclass_section, self.table_section, self.riders_panel,
             self.apply_prem_to_loan_check, self.tamra_check,
+            self.cover_change_charge_check,
             self.index_alloc_btn, self.lumpsum_edit, self.lumpsum_caption,
             self.lumpsum_to_next_check,
         ):
@@ -2598,6 +2612,7 @@ class DynamicInputsPanel(QWidget):
             "forecast_withdrawal": self.forecast_withdrawal_edit.text(),
             "lumpsum_to_next": self.lumpsum_to_next_check.isChecked(),
             "apply_prem_to_loan": self.apply_prem_to_loan_check.isChecked(),
+            "cover_change_surrender_charge": self.cover_change_charge_check.isChecked(),
             "tamra": self.tamra_check.isChecked(),
             "deemed_cash_value": self.dcv_edit.text(),
             "excess_repayment_as_premium": self.excess_apply_radio.isChecked(),
@@ -2636,6 +2651,8 @@ class DynamicInputsPanel(QWidget):
             str(state.get("forecast_withdrawal") or ""))
         self.apply_prem_to_loan_check.setChecked(
             bool(state.get("apply_prem_to_loan")))
+        self.cover_change_charge_check.setChecked(
+            bool(state.get("cover_change_surrender_charge")))
         self.tamra_check.setChecked(bool(state.get("tamra", True)))
         self.dcv_edit.setText(str(state.get("deemed_cash_value") or ""))
         self._refresh_dcv_availability()

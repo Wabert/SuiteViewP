@@ -20,6 +20,10 @@ from .styles import FUND_TABLE_STYLE, GROUP_STYLE, PURPLE_DARK, VALUE_BUTTON_STY
 # (button label, tooltip, detail card rows)
 BenefitButton = Tuple[str, str, List[tuple]]
 
+# Illustrated premium mode choices (months between premiums; None keeps the record's mode).
+MODE_CHOICES = (("As billed", None), ("Annual", 12), ("Semi-annual", 6), ("Quarterly", 3), ("Monthly", 1))
+MODE_NAMES = {12: "Annual", 6: "Semi-annual", 3: "Quarterly", 1: "Monthly"}
+
 
 def money(value: Optional[float]) -> str:
     return "" if value is None else f"{value:,.2f}"

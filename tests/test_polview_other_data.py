@@ -218,6 +218,48 @@ def test_claims_reads_the_configured_location(monkeypatch, tmp_path, qtbot):
     assert page.grid.isHidden()
 
 
+def test_claims_matches_rows_with_extra_trailing_fields(monkeypatch, tmp_path, qtbot):
+    """The live file grew a 12th field; extra columns must not shift the names."""
+    monkeypatch.setenv("SUITEVIEW_PROFILE_DIR", str(tmp_path / "profile"))
+    data = tmp_path / "claims.txt"
+    data.write_text(
+        "DEMO0001;C-1;11/11/2025;BC;11/14/2025;11/19/2025;DEMO0001  ;1;NAME,ONE      ;19460912;1;19\n"
+        "DEMO0002;C-2;01/19/2017;HI;01/23/2017;          ;DEMO0002  ;4;NAME,TWO      ;19531004;1;40\n",
+        encoding="latin-1",
+    )
+    page = claims_tab.ClaimsTab()
+    qtbot.addWidget(page)
+    page.set_file_path(str(data))
+    page.load_policy(SimpleNamespace(exists=True, policy_number="DEMO0001", company_code="01"))
+    result = page.grid.model.get_original_data()
+    assert result["Claim_number"].tolist() == ["C-1"]
+    assert result["Company_code"].tolist() == ["1"]
+    assert result["Field_12"].tolist() == ["19"]
+
+
+def test_claims_file_with_too_few_fields_is_loud(monkeypatch, tmp_path, qtbot):
+    monkeypatch.setenv("SUITEVIEW_PROFILE_DIR", str(tmp_path / "profile"))
+    data = tmp_path / "claims.txt"
+    data.write_text("DEMO0001;C-1;11/11/2025\n", encoding="latin-1")
+    page = claims_tab.ClaimsTab()
+    qtbot.addWidget(page)
+    page.set_file_path(str(data))
+    page.load_policy(SimpleNamespace(exists=True, policy_number="DEMO0001", company_code="01"))
+    assert "Could not read claim file" in page._status_label.text()
+    assert "expected at least 11" in page._status_label.text()
+
+
+def test_empty_claims_file_shows_no_records(monkeypatch, tmp_path, qtbot):
+    monkeypatch.setenv("SUITEVIEW_PROFILE_DIR", str(tmp_path / "profile"))
+    data = tmp_path / "claims.txt"
+    data.write_text("", encoding="latin-1")
+    page = claims_tab.ClaimsTab()
+    qtbot.addWidget(page)
+    page.set_file_path(str(data))
+    page.load_policy(SimpleNamespace(exists=True, policy_number="DEMO0001", company_code="01"))
+    assert "No records" in page.grid.model.get_original_data().iloc[0, 0]
+
+
 def test_empty_and_failed_immediate_sources_show_explicit_states(tab, sources):
     sources["CLAIMSFILE"].return_value = pd.DataFrame()
     tab.buttons["CLAIMSFILE"].click()

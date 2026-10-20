@@ -37,7 +37,16 @@ from suiteview.illustration.core.calc_engine import (
     ShadowFaceIncreaseError,
     validate_shadow_face_changes,
 )
+from suiteview.illustration.core.change_charge_premium import (
+    REJECTED_TITLE as CHANGE_PREMIUM_REJECTED_TITLE,
+    ChangeChargePremiumRejectedError,
+)
 from suiteview.illustration.core.deemed_cash_value import DCV_DEFAULTED_NOTICE, dcv_defaulted
+from suiteview.illustration.core.decrease_charge_check import (
+    BLOCKED_TITLE,
+    uncovered_decrease_charge_message,
+    uncovered_decrease_charges,
+)
 from suiteview.illustration.core.exception_notices import gp_exception_schedule_notices
 from suiteview.illustration.core.face_minimum import min_face_notices
 from suiteview.illustration.core.guaranteed_projection import run_guaranteed_projection
@@ -190,10 +199,15 @@ class SolvedInputs:
 
 @dataclass(frozen=True)
 class ReportResult:
-    """Report payload plus non-fatal guaranteed-side failure text."""
+    """Report payload plus non-fatal guaranteed-side failure text.
+
+    ``blocked_reason`` is set (and ``report`` is None) when the run is not
+    illustratable, e.g. a face decrease the surrender value cannot fund.
+    """
 
     report: IllustrationReport | None
     guaranteed_error: str | None = None
+    blocked_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -261,8 +275,10 @@ def execute_run(request: RunRequest, services: EngineServices | None = None) -> 
     if request.controls.abr_quote:
         result = _execute_abr_quote(request, scenario, engine, services)
         return replace(result, warnings=gate.warnings)
-    resolved = resolve_solved_inputs(request, scenario, engine)
-    current = run_current_projection(request, scenario, resolved, engine, services)
+    resolved, current = _resolve_and_project(request, scenario, engine, services)
+    blocked_reason = uncovered_decrease_charge_reason(current)
+    if blocked_reason is not None:
+        return _blocked_run_result(request, scenario, resolved, current, gate, blocked_reason)
     guaranteed, guaranteed_error = run_guaranteed_projection_safe(
         request, scenario, current, resolved, engine, services)
     report = build_report_result(
@@ -286,6 +302,52 @@ def execute_run(request: RunRequest, services: EngineServices | None = None) -> 
             + _reduced_request_warnings(scenario, resolved, current)
             + _gp_exception_notices(scenario, resolved, current)
         ),
+    )
+
+
+def _resolve_and_project(
+    request: RunRequest,
+    run_scenario: RunScenario,
+    engine: IllustrationEngine,
+    services: EngineServices,
+) -> tuple[ResolvedRunInputs, list[MonthlyState]]:
+    """Solves, then the current projection; a refused policy-change premium stops the run."""
+    try:
+        resolved = resolve_solved_inputs(request, run_scenario, engine)
+        return resolved, run_current_projection(request, run_scenario, resolved, engine, services)
+    except ChangeChargePremiumRejectedError as exc:
+        raise RunFlowError(CHANGE_PREMIUM_REJECTED_TITLE, str(exc)) from exc
+
+
+def uncovered_decrease_charge_reason(current: list[MonthlyState]) -> str | None:
+    """Why no report may be built: a face decrease whose PSC exceeds the surrender value."""
+    findings = uncovered_decrease_charges(current)
+    return uncovered_decrease_charge_message(findings) if findings else None
+
+
+def _blocked_run_result(
+    request: RunRequest,
+    run_scenario: RunScenario,
+    resolved: ResolvedRunInputs,
+    current: list[MonthlyState],
+    gate: GateResult,
+    blocked_reason: str,
+) -> RunResult:
+    """Current values only: no guaranteed projection and no illustration report."""
+    status = (
+        f"{BLOCKED_TITLE}: the partial surrender charge exceeds the surrender value "
+        "- illustration report not generated.")
+    return RunResult(
+        policy=run_scenario.scenario.projectable_policy,
+        scenario=run_scenario.scenario,
+        current=current,
+        guaranteed=None,
+        solved_inputs=resolved.solved_inputs,
+        report=ReportResult(None, blocked_reason=blocked_reason),
+        messages=[*resolved.messages, status],
+        lumpsum_result=resolved.lumpsum_result,
+        duration_label=run_scenario.duration_label,
+        warnings=gate.warnings,
     )
 
 

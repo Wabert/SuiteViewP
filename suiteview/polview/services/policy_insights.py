@@ -31,8 +31,8 @@ REGION_LABELS = {
 }
 
 # Chip tones map to colours in the UI strip.
-DANGER, WARN, INFO, OK, NEUTRAL, TEST, FUN, GEP = (
-    "danger", "warn", "info", "ok", "neutral", "test", "fun", "gep",
+DANGER, WARN, INFO, OK, NEUTRAL, TEST, FUN, GEP, CVAT = (
+    "danger", "warn", "info", "ok", "neutral", "test", "fun", "gep", "cvat",
 )
 
 
@@ -315,7 +315,8 @@ def _append_advanced_life_chips(
     if facts.advanced:
         dol = str(read.get("gpt_cvat") or "").strip()
         if dol:
-            chips.append(Chip("dol", dol, NEUTRAL,
+            # CVAT is the uncommon test, so its chip stands out; GPT stays neutral.
+            chips.append(Chip("dol", dol, CVAT if dol == "CVAT" else NEUTRAL,
                               "Definition of life insurance: GPT = Guideline Premium Test, "
                               "CVAT = Cash Value Accumulation Test"))
         if dol == "GPT" and _is_inforce(facts.status_code, facts.system):
@@ -467,6 +468,8 @@ def support_tool_availability(policy) -> dict[str, ToolAvailability]:
         "abr": ToolAvailability("abr", "ABR", loaded, "" if loaded else none_loaded),
         "glp_exception": ToolAvailability("glp_exception", "GLP Exception", glp,
                                           "" if glp else (glp_reason if loaded else none_loaded)),
+        "gep_v2": ToolAvailability("gep_v2", "GEP v2", glp,
+                                   "" if glp else (glp_reason if loaded else none_loaded)),
         "forecast": ToolAvailability("forecast", "Forecast", glp,
                                      "" if glp else (glp_reason if loaded else none_loaded)),
         "reinstatement": ToolAvailability(

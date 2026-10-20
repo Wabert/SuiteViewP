@@ -68,6 +68,7 @@ registry entries below are consumed by lazy section objects.
 | tefra_defra_guideline_indicator | LH_BAS_POL | TFDF_GDL_IND | text |  | Trad, Adv, WL, ISWL, DI | optional |
 | mdo_code | LH_BAS_POL | USR_RES_CD | text |  | Trad, Adv, WL, ISWL, DI | yes |
 | billing_control_number | LH_BIL_FRM_CTL | BIL_CTL_NBR | text |  | Trad, Adv, WL, ISWL, DI | optional |
+| participation_type_code | LH_COV_PHA | DIV_PTP_TYP_CD | text |  | Trad, Adv, WL, ISWL, DI | optional |
 | stored_cv_1 | LH_COV_PHA | LOW_DUR_1_CSV_AMT | decimal |  | Trad, Adv, WL, ISWL, DI | optional |
 | stored_nsp_1 | LH_COV_PHA | LOW_DUR_1_NSP_AMT | decimal |  | Trad, Adv, WL, ISWL, DI | optional |
 | stored_cv_2 | LH_COV_PHA | LOW_DUR_2_CSV_AMT | decimal |  | Trad, Adv, WL, ISWL, DI | optional |
@@ -88,6 +89,8 @@ registry entries below are consumed by lazy section objects.
 | annual_policy_fee | LH_FXD_PRM_POL | POL_FEE_AMT | decimal |  | Trad, WL, DI | yes |
 | corridor_percent | LH_NON_TRD_POL | CDR_PCT | decimal | 100 | Adv, ISWL | yes |
 | db_option_code | LH_NON_TRD_POL | DTH_BNF_PLN_OPT_CD | text |  | Adv, ISWL | yes |
+| full_surrender_second_charge_rule | LH_NON_TRD_POL | FUL_SRD_2ND_CRG_CD | text |  | Adv, ISWL | optional |
+| full_surrender_first_charge_rule | LH_NON_TRD_POL | FUL_SRD_FST_CRG_CD | text |  | Adv, ISWL | optional |
 | advanced_grace_expiry | LH_NON_TRD_POL | GRA_PER_EXP_DT | date |  | Adv, ISWL | yes |
 | grace_rule_code | LH_NON_TRD_POL | GRA_THD_RLE_CD | text |  | Adv, ISWL | yes |
 | advanced_grace_indicator | LH_NON_TRD_POL | IN_GRA_PER_IND | text |  | Adv, ISWL | yes |

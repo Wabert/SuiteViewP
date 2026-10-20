@@ -19,6 +19,7 @@ from typing import List, Optional
 from dateutil.relativedelta import relativedelta
 
 from suiteview.illustration.core.bonus_rates import load_bonus_config
+from suiteview.illustration.core.input_compiler import CHANGE_CHARGE_SUBTYPE
 from suiteview.illustration.core.rate_loader import load_rates
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.input_set import (
@@ -63,10 +64,16 @@ def lock_values(
     # bill drops when a benefit ceases), so the requested payments are locked.
     for state in current_results[1:]:
         month_date = policy.issue_date + relativedelta(months=state.duration - 1)
+        change_premium = state.change_charge_premium
         premium = (
             state.requested_premium if iswl and state.gross_premium > _EPS
-            else state.gross_premium + state.gp_exception_prem + state.md_premium
+            else state.gross_premium - change_premium
+            + state.gp_exception_prem + state.md_premium
         )
+        if change_premium > _EPS:
+            dated.append(DatedTransaction(
+                kind=TransactionKind.PREMIUM, effective_date=month_date,
+                amount=change_premium, subtype=CHANGE_CHARGE_SUBTYPE))
         if premium > _EPS:
             dated.append(DatedTransaction(
                 kind=TransactionKind.PREMIUM, effective_date=month_date,
@@ -113,6 +120,7 @@ def guaranteed_options(base: Optional[IllustrationOptions] = None) -> Illustrati
         billable_to_md_windows=None,     # Billable-to-MD premiums locked in too
         apply_prem_to_loan=False,        # diverted dollars locked as repayments
         apply_excess_repayment_as_premium=False,
+        cover_change_surrender_charge=False,  # policy-change premium locked in
         levelizing_premium=False,
         restrict_loans_to_sv=False,      # do not re-limit locked distributions
         guaranteed_assumption=True,      # sAssumptionCode=3 — caps the IUL WAIR

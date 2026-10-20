@@ -1778,6 +1778,8 @@ class IllustrationInputsTab(QWidget):
             guideline_by_search=self.gp_search_check.isChecked(),
             shadow_nplus1_relief=self.shadow_nplus1_check.isChecked(),
             apply_prem_to_loan=self.dynamic_panel.apply_prem_to_loan_check.isChecked(),
+            cover_change_surrender_charge=(
+                self.dynamic_panel.cover_change_charge_check.isChecked()),
             apply_excess_repayment_as_premium=(
                 self.dynamic_panel.excess_repayment_as_premium()),
             loan_repay_principal_first=self.loan_principal_first_check.isChecked(),

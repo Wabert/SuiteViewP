@@ -218,7 +218,7 @@ def project_guideline_exception_target_forecast(
     ``quote_date`` is the day the quote is run: the projection opens from the
     Interim AV Quote on that date and assumes new premium arrives then.
     """
-    basis = _prepare_projection(policy, target_date, quote_date)
+    basis = prepare_target_projection(policy, target_date, quote_date)
     ill_policy = basis.policy
     valuation_date = basis.valuation_date
     months_to_target = basis.months_to_target
@@ -346,7 +346,7 @@ def _solve_and_project_target(
         **projection_overrides,
     ).states
     if interim_start is not None and states:
-        states = [_with_date(states[0], interim_start), *states[1:]]
+        states = [with_date(states[0], interim_start), *states[1:]]
     rows = [
         _forecast_row(state)
         for state in states
@@ -366,7 +366,7 @@ def _solve_and_project_target(
     return solved, rows, exception_start, lump_sum, lump_sum_date
 
 
-def _with_date(state, when: date):
+def with_date(state, when: date):
     """Copy a ledger state with a new display date."""
     if is_dataclass(state):
         return replace(state, date=when)
@@ -376,11 +376,19 @@ def _with_date(state, when: date):
 
 
 @dataclass(frozen=True)
-class _ProjectionBasis:
+class TargetProjectionBasis:
+    """Opening basis shared by the GLP Exception and GEP v2 target quotes.
+
+    ``months_to_target`` counts the monthly deductions strictly before the
+    target date; ``rates``/``config`` are the loaded forecast basis.
+    """
+
     policy: IllustrationPolicyData
     valuation_date: date
     months_to_target: int
     interim: InterimAccountValue | None
+    rates: object
+    config: object
     interim_unavailable_reason: str = ""
 
     @property
@@ -393,11 +401,11 @@ class _ProjectionBasis:
             valuation_account_value=self.interim.valuation_account_value)
 
 
-def _prepare_projection(
+def prepare_target_projection(
     policy,
     target_date: date,
     quote_date: date,
-) -> _ProjectionBasis:
+) -> TargetProjectionBasis:
     """Shared setup for the solve and the forecast.
 
     Opens from the Interim AV Quote on ``quote_date``: the valuation-date AV
@@ -428,13 +436,15 @@ def _prepare_projection(
         interim = interim_account_value_quote(
             policy, ill_policy, availability.config, availability.rates, quote_date)
     except InterimValueUnavailable as exc:
-        return _ProjectionBasis(
+        return TargetProjectionBasis(
             ill_policy, valuation_date, months_to_target, None,
+            availability.rates, availability.config,
             f"Interim AV Quote unavailable: {exc} This quote uses the "
             f"{valuation_date:%m/%d/%Y} monthliversary values and ignores "
             "premiums received since.")
-    return _ProjectionBasis(
-        apply_interim_value(ill_policy, interim), valuation_date, months_to_target, interim)
+    return TargetProjectionBasis(
+        apply_interim_value(ill_policy, interim), valuation_date, months_to_target, interim,
+        availability.rates, availability.config)
 
 
 def _summarize(

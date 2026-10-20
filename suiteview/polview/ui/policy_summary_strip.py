@@ -20,7 +20,7 @@ from PyQt6.QtCore import QMimeData, Qt, pyqtSignal
 from PyQt6.QtWidgets import QApplication, QHBoxLayout, QLabel, QPushButton, QWidget
 
 from ..services.policy_insights import (
-    DANGER, FUN, GEP, INFO, NEUTRAL, OK, TEST, WARN, Chip, PolicySummary, Suggestion,
+    CVAT, DANGER, FUN, GEP, INFO, NEUTRAL, OK, TEST, WARN, Chip, PolicySummary, Suggestion,
     summary_html, summary_text,
 )
 from ..services.policy_notes import PolicyNotesStore
@@ -40,6 +40,10 @@ CHIP_COLORS = {
     GEP: (
         "qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #00ACC1, stop:0.5 #7E57C2, stop:1 #EC407A)",
         "#FFFFFF", "#4527A0",
+    ),
+    CVAT: (
+        "qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #FFB300, stop:0.5 #FB8C00, stop:1 #E53935)",
+        "#FFFFFF", "#BF360C",
     ),
 }
 

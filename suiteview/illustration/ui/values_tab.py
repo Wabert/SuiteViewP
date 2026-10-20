@@ -19,6 +19,10 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from suiteview.illustration.core.change_charge_premium import (
+    DETAIL_COLUMNS as CHANGE_PREMIUM_DETAIL_COLUMNS,
+    ROOM_COLUMNS as CHANGE_PREMIUM_ROOM_COLUMNS,
+)
 from suiteview.illustration.core.loan_handler import empty_loan_cap_repay_detail
 from suiteview.illustration.core.mec import seven_pay_backtest
 from suiteview.illustration.core.report_builder import (
@@ -1282,6 +1286,10 @@ class IllustrationValuesTab(QWidget):
     WITHDRAWALS_GROUP = "Withdrawals"
     DBO_CHANGE_GROUP = "DB Option Change"
     FACE_CHANGE_GROUP = "Increase/Decrease"
+    # Premium paid ahead of a DB option / face change to cover its partial
+    # surrender charge (core/change_charge_premium.py).
+    CHANGE_PREMIUM_GROUP = "Policy Change Premium"
+    CHANGE_PREMIUM_COLUMNS = list(CHANGE_PREMIUM_DETAIL_COLUMNS)
     MTP_GROUP = "MTP"
     CTP_GROUP = "CTP"
     # FFL premium-waiver intermediates (CalcEngine IW..JA) inserted into the MTP
@@ -1372,6 +1380,7 @@ class IllustrationValuesTab(QWidget):
         WITHDRAWALS_GROUP,
         DBO_CHANGE_GROUP,
         FACE_CHANGE_GROUP,
+        CHANGE_PREMIUM_GROUP,
         COV_AFTER_CHANGE_GROUP,
         MTP_GROUP,
         CTP_GROUP,
@@ -1729,6 +1738,7 @@ class IllustrationValuesTab(QWidget):
             self.WITHDRAWALS_GROUP: self._withdrawals_columns,
             self.DBO_CHANGE_GROUP: self._dbo_change_columns,
             self.FACE_CHANGE_GROUP: self._face_change_columns,
+            self.CHANGE_PREMIUM_GROUP: self.CHANGE_PREMIUM_COLUMNS,
             self.COV_AFTER_CHANGE_GROUP: self._cov_after_change_columns,
             self.MTP_GROUP: self._mtp_columns,
             self.CTP_GROUP: self._ctp_columns,
@@ -2187,6 +2197,7 @@ class IllustrationValuesTab(QWidget):
         row.update(self._withdrawal_values(state))
         row.update(self._dbo_change_values(state))
         row.update(self._face_change_values(state))
+        row.update(self._change_premium_values(state))
         row.update(self._cov_after_change_values(state))
         row.update(self._target_premium_values(state))
         loan_capitalize = self._loan_capitalize_values(state)
@@ -2804,6 +2815,17 @@ class IllustrationValuesTab(QWidget):
             state.coverage_after_change,
             "CurrentSA",
         ) or cls._detail_float(state.face_change_detail, "Total SA")
+        return row
+
+    @staticmethod
+    def _change_premium_values(state: MonthlyState) -> dict:
+        # Premium covering a policy change's partial surrender charge; the room
+        # columns are blank where that limit does not apply.
+        row = {
+            column: ("" if column in CHANGE_PREMIUM_ROOM_COLUMNS else 0.0)
+            for column in CHANGE_PREMIUM_DETAIL_COLUMNS
+        }
+        row.update(state.change_premium_detail)
         return row
 
     @staticmethod

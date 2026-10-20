@@ -39,6 +39,7 @@ from suiteview.ui.widgets.mini_explorer import (
     DoubleClickablePathLabel, DraggableToolsList, MiniExplorer, TightItemDelegate, icon_for_ext,
 )
 from .annuity_rider_tab import AnnuityRiderTab, RIDER_PLANCODE
+from .gep_v2_page import GepV2Page
 from ....utils.excel_template import copy_as_workbook, workbook_filename
 from suiteview.core.access_control import (
     AccessDeniedError, AccessUnavailableError,
@@ -367,6 +368,7 @@ class PolicySupportTab(QWidget):
     MODE_ABR = "abr"
     SECTION_ANNUITY_RIDER = "annuity_rider"
     SECTION_GLP_EXCEPTION = "glp_exception"
+    SECTION_GEP_V2 = "gep_v2"
     SECTION_FORECAST = "forecast"
 
     def __init__(self, parent=None):
@@ -432,6 +434,14 @@ class PolicySupportTab(QWidget):
             lambda: self._select_section(self.SECTION_GLP_EXCEPTION)
         )
         nav_col.addWidget(self._btn_mode_glp_exception)
+
+        self._btn_mode_gep_v2 = QPushButton("GEP v2")
+        self._btn_mode_gep_v2.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_mode_gep_v2.setMinimumWidth(108)
+        self._btn_mode_gep_v2.clicked.connect(
+            lambda: self._select_section(self.SECTION_GEP_V2)
+        )
+        nav_col.addWidget(self._btn_mode_gep_v2)
 
         self._btn_reinstatement = QPushButton("UL Reinstatement")
         self._btn_reinstatement.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -616,11 +626,13 @@ class PolicySupportTab(QWidget):
 
         self._annuity_rider_tab = AnnuityRiderTab()
         self._glp_exception_page = self._build_glp_exception_page()
+        self._gep_v2_page = GepV2Page()
         self._forecast_page = self._build_forecast_page()
 
         self._content_stack.addWidget(self._workspace_page)
         self._content_stack.addWidget(self._annuity_rider_tab)
         self._content_stack.addWidget(self._glp_exception_page)
+        self._content_stack.addWidget(self._gep_v2_page)
         self._content_stack.addWidget(self._forecast_page)
         layout.addWidget(self._content_stack, 1)
 
@@ -885,7 +897,15 @@ class PolicySupportTab(QWidget):
         self._btn_mode_annuity.setEnabled(tool_state.has_annuity_rider)
         glp_eligible = tool_state.glp_eligible
         self._btn_mode_glp_exception.setEnabled(glp_eligible)
+        self._btn_mode_gep_v2.setEnabled(glp_eligible)
         self._btn_mode_forecast.setEnabled(glp_eligible)
+        self._gep_v2_page.set_policy(
+            policy,
+            cache_key=self._glp_policy_cache_key(policy),
+            default_target_text=self._default_glp_target_date_text(policy),
+        )
+        if self._current_section == self.SECTION_GEP_V2:
+            self._gep_v2_page.refresh()
         if self._current_section == self.SECTION_GLP_EXCEPTION:
             self._refresh_glp_exception_status()
         elif self._current_section == self.SECTION_FORECAST:
@@ -920,6 +940,7 @@ class PolicySupportTab(QWidget):
             self._subfolder_explorer.set_root("")
             self._btn_mode_abr.setEnabled(False)
             self._btn_mode_glp_exception.setEnabled(False)
+            self._btn_mode_gep_v2.setEnabled(False)
             self._btn_mode_forecast.setEnabled(False)
             self._refresh_section_buttons()
             return
@@ -1028,6 +1049,8 @@ class PolicySupportTab(QWidget):
             return
         if section == self.SECTION_GLP_EXCEPTION and not self._btn_mode_glp_exception.isEnabled():
             return
+        if section == self.SECTION_GEP_V2 and not self._btn_mode_gep_v2.isEnabled():
+            return
         if section == self.SECTION_FORECAST and not self._btn_mode_forecast.isEnabled():
             return
 
@@ -1039,6 +1062,9 @@ class PolicySupportTab(QWidget):
         elif section == self.SECTION_GLP_EXCEPTION:
             self._content_stack.setCurrentWidget(self._glp_exception_page)
             self._refresh_glp_exception_status()
+        elif section == self.SECTION_GEP_V2:
+            self._content_stack.setCurrentWidget(self._gep_v2_page)
+            self._gep_v2_page.refresh()
         elif section == self.SECTION_FORECAST:
             self._content_stack.setCurrentWidget(self._forecast_page)
             self._refresh_forecast_status()
@@ -1057,6 +1083,7 @@ class PolicySupportTab(QWidget):
             "policy_support": self.MODE_POLICY_SUPPORT,
             "abr": self.MODE_ABR,
             "glp_exception": self.SECTION_GLP_EXCEPTION,
+            "gep_v2": self.SECTION_GEP_V2,
             "forecast": self.SECTION_FORECAST,
             "annuity_rider": self.SECTION_ANNUITY_RIDER,
         }.get(key)
@@ -1069,6 +1096,7 @@ class PolicySupportTab(QWidget):
             "policy_support": self._btn_mode_polsup,
             "abr": self._btn_mode_abr,
             "glp_exception": self._btn_mode_glp_exception,
+            "gep_v2": self._btn_mode_gep_v2,
             "forecast": self._btn_mode_forecast,
             "reinstatement": self._btn_reinstatement,
             "annuity_rider": self._btn_mode_annuity,
@@ -1098,6 +1126,11 @@ class PolicySupportTab(QWidget):
         self._btn_mode_glp_exception.setStyleSheet(
             _MODE_BTN_ACTIVE_STYLE
             if self._current_section == self.SECTION_GLP_EXCEPTION
+            else _MODE_BTN_INACTIVE_STYLE
+        )
+        self._btn_mode_gep_v2.setStyleSheet(
+            _MODE_BTN_ACTIVE_STYLE
+            if self._current_section == self.SECTION_GEP_V2
             else _MODE_BTN_INACTIVE_STYLE
         )
         self._btn_mode_forecast.setStyleSheet(

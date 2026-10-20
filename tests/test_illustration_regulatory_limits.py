@@ -1,3 +1,5 @@
+import pytest
+
 from suiteview.illustration.core import calc_engine
 from suiteview.illustration.core.illustration_policy_service import _translate_doli
 from suiteview.illustration.core.premium_allowance import (
@@ -95,3 +97,37 @@ def test_blank_definition_of_life_disables_guideline_forceout():
     assert forceout == 0.0
     assert withdrawals == 0.0
     assert av == 1_000.0
+
+
+@pytest.mark.parametrize("overdraw, expected_forceout, expected_av", [
+    (False, 100.0, 0.0),     # capped at the available account value (KX)
+    (True, 500.0, -400.0),   # taken in full; the AV goes negative
+])
+def test_guideline_forceout_overdraws_account_value_only_when_asked(
+        overdraw, expected_forceout, expected_av):
+    forceout, withdrawals, av = calc_engine._apply_guideline_forceout(
+        gsp=1_000.0,
+        accumulated_glp=1_000.0,
+        premiums_to_date=1_500.0,
+        withdrawals_to_date=0.0,
+        account_value_before_premium=100.0,
+        enabled=True,
+        has_guideline_limit=True,
+        prior_exception_mode=False,
+        overdraw_account_value=overdraw,
+    )
+
+    assert forceout == expected_forceout
+    assert withdrawals == expected_forceout
+    assert av == expected_av
+
+
+def test_overdraw_also_deepens_an_already_negative_account_value():
+    forceout, _, av = calc_engine._apply_guideline_forceout(
+        gsp=0.0, accumulated_glp=1_000.0, premiums_to_date=1_240.0,
+        withdrawals_to_date=0.0, account_value_before_premium=-50.0,
+        enabled=True, has_guideline_limit=True, prior_exception_mode=False,
+        overdraw_account_value=True,
+    )
+    assert forceout == 240.0
+    assert av == -290.0

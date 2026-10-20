@@ -40,13 +40,11 @@ from suiteview.polview.ui.widgets import StyledInfoTableGroup
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 
 from .illustration_pages_view import IllustrationPagesView, InforceChecksView, ReportPages
-from .policy_snapshot_widgets import BenefitButtonsGroup, CoverageTableGroup, money, short_date
+from .policy_snapshot_widgets import MODE_CHOICES, MODE_NAMES, BenefitButtonsGroup, CoverageTableGroup, money, short_date
 from .styles import GROUP_STYLE, PURPLE_BG, PURPLE_DARK, TAB_WIDGET_STYLE, apply_input_checkbox_style
 
 logger = logging.getLogger(__name__)
 
-MODE_CHOICES = (("As billed", None), ("Annual", 12), ("Semi-annual", 6), ("Quarterly", 3), ("Monthly", 1))
-MODE_NAMES = {12: "Annual", 6: "Semi-annual", 3: "Quarterly", 1: "Monthly"}
 COVERAGE_COLUMNS = ["Phs", "Form", "Plancode", "Type", "IssueDate", "Level To", "Mat Date", "Amount", "Units",
                     "IssAge", "Gender", "Class", "Tbl", "Prem/Unit", "Next Rate", "Level Yrs", "Renews"]
 LEDGER_COLUMNS = (

@@ -33,6 +33,7 @@ from suiteview.ui.widgets.filter_table_view import FilterTableView
 
 from .parwl_rpu_page import PAGE_TITLE as RPU_PAGE_TITLE
 from .parwl_rpu_page import ParWLRPUWorkupPage
+from .policy_snapshot_widgets import MODE_NAMES
 from .styles import PURPLE_BG, PURPLE_DARK, PURPLE_PRIMARY, WHITE
 
 LEAD_COLUMNS: Tuple[Tuple[str, str], ...] = (
@@ -49,10 +50,11 @@ PAGES: Dict[str, Tuple[Tuple[str, str], ...]] = {
         ("death_benefit", "Death Benefit"), ("notes", "Notes"),
     ),
     "Premiums": (
+        ("premium_frequency", "Mode"),
         ("base_premium", "Base Premium"), ("rider_premium", "Rider Premium"),
         ("benefit_premium", "Benefit & Extra Premium"), ("policy_fee", "Policy Fee"),
         ("premium_billed", "Premium Billed"), ("premium_by_dividend", "Paid by Dividend"),
-        ("premium_paid", "Premium Paid"), ("premium_credit", "Premium Credit Left"),
+        ("premium_paid", "Premium Paid"),
         ("rider_payment", "PUA Rider Payment"),
     ),
     "Dividends": (
@@ -91,7 +93,8 @@ PAGES: Dict[str, Tuple[Tuple[str, str], ...]] = {
         ("death_benefit", "Death Benefit"),
     ),
 }
-TEXT_COLUMNS = frozenset({"when", "status", "notes", "dividend_record", "dividend_option", "rpu"})
+TEXT_COLUMNS = frozenset({"when", "status", "notes", "dividend_record", "dividend_option", "rpu",
+                          "premium_frequency"})
 # Anniversary-only facts left blank on the other months so the dividend rows stand out.
 BLANK_WHEN_ZERO = frozenset({"dividend_year", "dividend_rate"})
 RATE_COLUMNS = {"dividend_rate": 4, "nsp_start": 3, "nsp_end": 3, "units": 3, "cv_per_unit_start": 2,
@@ -114,6 +117,8 @@ def month_frame(months: Sequence[ParWLMonth], page: str, anniversaries_only: boo
                 value = value.strftime("%m/%d/%Y")
             elif attr == "rpu":
                 value = "RPU" if value else ""
+            elif attr == "premium_frequency":
+                value = MODE_NAMES.get(value, "")
             elif attr in BLANK_WHEN_ZERO and not value:
                 value = None
             record[header] = value

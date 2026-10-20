@@ -157,23 +157,8 @@ NON_TRAD_INDICATOR_ITEMS = [
     "1 - Advanced",
 ]
 
-# Base coverage only: CyberLife D20 pp.117-118; rider codes have other meanings.
-PARTICIPATION_TYPE_DESCRIPTIONS = {
-    "": "Nonparticipating",
-    "0": "Nonparticipating",
-    "1": "Nonparticipating",
-    "2": "Nonparticipating with coupons",
-    "3": "Nonparticipating with pure endowments",
-    "4": "Nonparticipating with guaranteed annual endowments",
-    **{code: "Nonparticipating with other forms" for code in "5678"},
-    "9": "Participating but divs are paid up",
-    "A": "Participating (dividends)",
-    "B": "Participating with coupons",
-    "C": "Participating with pure endowments",
-    "D": "Participating with guaranteed annual endowments",
-    **{code: "Participating with other forms" for code in "EFGH"},
-}
-
+# Base-coverage participation groups; per-code descriptions live in
+# policy_translations.PARTICIPATION_TYPE_DESCRIPTIONS.
 PARTICIPATION_CODES = {
     "Participating": tuple("ABCDEFGH"),
     "Participating but divs are paid up": ("9",),

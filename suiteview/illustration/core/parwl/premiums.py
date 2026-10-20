@@ -49,8 +49,9 @@ class ModalPremiumParts:
         return _cents(self.base + self.rider + self.benefit + self.extra + self.fee + self.rounding)
 
 
-def policy_mode(policy: ParWLPolicy) -> str:
-    return MODES_BY_FREQUENCY.get(int(policy.billing_frequency), "")
+def policy_mode(policy: ParWLPolicy, frequency: Optional[int] = None) -> str:
+    """The mode letter (A/S/Q/M) of ``frequency``, the record's billing frequency by default."""
+    return MODES_BY_FREQUENCY.get(int(frequency or policy.billing_frequency), "")
 
 
 def mode_factors(policy: ParWLPolicy, rates: ParWLRates) -> Optional[ModeFactors]:
@@ -66,11 +67,14 @@ def record_premium_date(policy: ParWLPolicy) -> date:
     return policy.valuation_date
 
 
-def modal_premium(policy: ParWLPolicy, rates: ParWLRates, when: date) -> ModalPremiumParts:
-    """The modal premium due on ``when`` (all coverages, benefits, extras and fee)."""
-    mode = policy_mode(policy)
-    factors = rates.mode_factor(mode)
-    factor = factors.prem_factor if factors is not None else policy.billing_frequency / 12.0
+def modal_premium(policy: ParWLPolicy, rates: ParWLRates, when: date,
+                  frequency: Optional[int] = None, bill_form: Optional[str] = None) -> ModalPremiumParts:
+    """The modal premium due on ``when`` (all coverages, benefits, extras and fee) for the
+    mode billed every ``frequency`` months on ``bill_form`` (the record's by default)."""
+    frequency = int(frequency or policy.billing_frequency)
+    mode = policy_mode(policy, frequency)
+    factors = rates.mode_factor(mode, bill_form)
+    factor = factors.prem_factor if factors is not None else frequency / 12.0
     per_unit_first = factors is not None and factors.multiply_order == "2"
 
     def modal(units: float, rate: float) -> float:

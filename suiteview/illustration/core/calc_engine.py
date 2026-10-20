@@ -89,9 +89,20 @@ from suiteview.illustration.constants import (
 )
 from suiteview.illustration.core.bonus_eligibility import apply_bonus_eligibility
 from suiteview.illustration.core.bonus_rates import BonusConfig, load_bonus_config
+from suiteview.illustration.core.change_charge_premium import (
+    ChangeChargePremium,
+    ChangeChargePremiumRejectedError,
+    ChangePremiumRoom,
+    rejected_message,
+)
 from suiteview.illustration.core.corridor_rates import corridor_death_benefit, corridor_factor
 from suiteview.illustration.core.cvat_nsp import CvatCorridor, IswlNspBasis, UlNspBasis
 from suiteview.illustration.core.deemed_cash_value import NptTracker, glp_rate_for
+from suiteview.illustration.core.decrease_charge_check import (
+    DBO_PSC_KEY,
+    FACE_PSC_KEY,
+    record_charge_coverage,
+)
 from suiteview.illustration.core.face_minimum import limited_decrease, record_limit as record_min_face_limit
 from suiteview.illustration.core.input_applier import apply_cash_flow_inputs
 from suiteview.illustration.core.input_compiler import compile_month_inputs
@@ -142,9 +153,11 @@ from suiteview.illustration.core.premium_allowance import (
     compute_premium_allowances,
 )
 from suiteview.illustration.core.premium_handler import (
+    PremiumLoadSplit,
     apply_premium,
     gross_up_for_premium_load,
     premium_load_rates,
+    split_premium_load,
 )
 from suiteview.illustration.core.rate_loader import (
     IllustrationRates,
@@ -315,6 +328,12 @@ class MonthWork:
     # (first projected monthliversary) to the AV and shadow account.
     received_premium_net: float = 0.0
     received_shadow_net: float = 0.0
+    # Premium paid this month to cover a policy change's partial surrender
+    # charge (_apply_change_charge_premium); folded into ``prem`` after the
+    # month's premium step.
+    change_premium: Optional[ChangeChargePremium] = None
+    change_premium_split: Optional[PremiumLoadSplit] = None
+    change_premium_before_premium: bool = True
 
 
 @dataclass
@@ -695,6 +714,7 @@ def apply_policy_changes(
         _capture_coverage_after_change(ctx, work)
         return
 
+    _apply_change_charge_premium(ctx, work)
     guideline_changes, recalc_change, before, before_pv = _apply_policy_change_loop(
         ctx, work
     )
@@ -705,6 +725,200 @@ def apply_policy_changes(
     if work.tamra_reset:
         policy.tamra_7pay_start_date = work.month_date
     _capture_coverage_after_change(ctx, work)
+
+
+def _apply_change_charge_premium(ctx: MonthContext, work: MonthWork) -> None:
+    """Pay the premium that lets this month's face reduction clear its PSC.
+
+    Runs after the withdrawal and before the DB option / face change. The
+    current side solves the net premium the surrender value is short of the
+    largest partial surrender charge, grosses it up for the premium load and
+    tests it against the pre-change guideline, 7-pay and NPT room; a refused
+    premium raises :class:`ChangeChargePremiumRejectedError`. The guaranteed
+    side replays the current side's premium (``CompiledMonthInputs.
+    change_charge_premium``). Premiums YTD/to date and cost basis include it.
+    """
+    locked = float(getattr(ctx.month_inputs, "change_charge_premium", 0.0) or 0.0)
+    if locked <= MONEY_EPSILON and not ctx.options.cover_change_surrender_charge:
+        return
+    if ctx.state.lapsed or ctx.config.is_iswl or not ctx.policy_changes:
+        return
+    shortfall, largest_psc, sv_before = _change_charge_shortfall(ctx, work, 0.0)
+    premium_done = getattr(work, "prem", None) is not None
+    premiums_ytd = work.prem.premiums_ytd if premium_done else work.premiums_ytd
+    tpp, epp = premium_load_rates(ctx.rates, work.rate_year)
+    load_args = dict(premiums_ytd=premiums_ytd, ctp=ctx.policy.ctp, tpp=tpp, epp=epp,
+                     flat=ctx.config.prem_flat_load)
+    if locked > MONEY_EPSILON:
+        split = split_premium_load(locked, **load_args)
+        net_needed, room = 0.0, ChangePremiumRoom()
+    else:
+        if shortfall <= 0.0:
+            return
+        net_needed = _solve_change_net_premium(ctx, work, shortfall)
+        split = gross_up_for_premium_load(net_needed, **load_args)
+        room = _change_premium_room(ctx, work, premium_done)
+        refused = room.refusals(split.gross)
+        if refused:
+            raise ChangeChargePremiumRejectedError(
+                rejected_message(split.gross, work.month_date, refused))
+    work.av += split.net
+    sync_segments(work, "Policy change premium")
+    # The A to B decrease grows with the account value: report the charge taken.
+    _, largest_psc, _ = _change_charge_shortfall(ctx, work, 0.0)
+    work.premiums_ytd += split.gross
+    work.premiums_to_date += split.gross
+    work.cost_basis += split.gross
+    premiums_to_date_after = (
+        work.prem.premiums_to_date + split.gross if premium_done else work.premiums_to_date)
+    work.change_premium_split = split
+    work.change_premium_before_premium = not premium_done
+    work.change_premium = ChangeChargePremium(
+        change_date=work.month_date,
+        surrender_value_before=sv_before,
+        largest_psc=largest_psc,
+        net_needed=net_needed,
+        room=room,
+        gross=split.gross,
+        premium_load=split.total_load,
+        net=split.net,
+        av_after=work.av,
+        premiums_to_date_after=premiums_to_date_after,
+        cost_basis_after=work.cost_basis,
+        locked=locked > MONEY_EPSILON,
+    )
+
+
+def _solve_change_net_premium(ctx: MonthContext, work: MonthWork, shortfall: float) -> float:
+    """Smallest whole-cent net premium leaving no change's PSC above its surrender value.
+
+    A DB option A to B decrease grows with the account value, so the shortfall
+    is re-tested after each step; each step adds at least a cent.
+    """
+    net = 0.0
+    for _ in range(200):
+        net = max(round(net + 0.01, 2), math.ceil(round((net + shortfall) * 100.0, 6)) / 100.0)
+        shortfall, _, _ = _change_charge_shortfall(ctx, work, net)
+        if shortfall <= 0.0:
+            return net
+    raise ValueError(
+        f"The premium needed to cover the policy change surrender charge on "
+        f"{work.month_date:%m/%d/%Y} did not converge.")
+
+
+def _change_charge_shortfall(ctx: MonthContext, work: MonthWork, extra_net: float) -> tuple:
+    """``(largest PSC - surrender value, largest PSC, first surrender value)``.
+
+    Replays the month's DB option and face changes on a copy of the coverage
+    with ``extra_net`` added to the account value, testing each change as
+    ``_record_decrease_charge_coverage`` does. The shortfall is 0 when every
+    charge is covered.
+    """
+    sim = copy.copy(ctx.policy)
+    sim.segments = [copy.copy(seg) for seg in ctx.policy.segments]
+    av = work.av + extra_net
+    debt = work.cap_loan.policy_debt
+    shortfall, largest, first_sv = 0.0, 0.0, None
+    for change in sorted(ctx.policy_changes or [],
+                         key=lambda item: _POLICY_CHANGE_ORDER.get(item.kind, 99)):
+        if change.kind not in (PolicyChangeKind.FACE_AMOUNT, PolicyChangeKind.DB_OPTION):
+            continue
+        _, surrender_charge, _, _ = _calculate_surrender_charge(
+            sim, ctx.rates, work.rate_year, work.month_date, ctx.config, account_value=av)
+        sv = av - surrender_charge - debt
+        if first_sv is None:
+            first_sv = sv
+        cuts = _simulate_change_cut(sim, ctx.config, change, ctx.rates, work.rate_year,
+                                    work.month_date, av)
+        if cuts is None:
+            continue
+        psc = -cuts.av_adjustment
+        if psc > MONEY_EPSILON:
+            largest = max(largest, psc)
+            shortfall = max(shortfall, psc - sv)
+        av += cuts.av_adjustment
+    return shortfall, largest, (av - debt if first_sv is None else first_sv)
+
+
+def _simulate_change_cut(sim, config, change, rates, rate_year, when, av) -> Optional[_FaceCutResult]:
+    """The face cut (with PSC) a DB option or face change makes, applied to ``sim``."""
+    if change.kind == PolicyChangeKind.DB_OPTION:
+        old = str(sim.db_option or "").upper()
+        new = str(change.value or "").upper()
+        if not new or new == old:
+            return None
+        av_whole = float(math.floor(max(av, 0.0)))
+        sim.db_option = new
+        if old == DB_OPTION_LEVEL and new == DB_OPTION_INCREASING:
+            return _reduce_base_face(
+                sim, limited_decrease(config, sim.total_face, av_whole), rates, when,
+                rate_year, charge_scr=config.face_decrease_surrender_charge, config=config)
+        if old == DB_OPTION_INCREASING and new == DB_OPTION_LEVEL:
+            _apply_option_b_to_a(sim, av_whole, {}, _PolicyChangeOutcome())
+        return None
+    if change.kind == PolicyChangeKind.FACE_AMOUNT:
+        face_before = sum(s.face_amount for s in sim.segments) or sim.face_amount
+        delta = _effective_face_target(config, change, face_before) - face_before
+        if delta < -1e-6:
+            return _reduce_base_face(
+                sim, -delta, rates, when, rate_year,
+                charge_scr=_charge_face_decrease_surrender(sim, config, change.metadata or {}),
+                config=config)
+    return None
+
+
+def _change_premium_room(ctx: MonthContext, work: MonthWork, premium_done: bool) -> ChangePremiumRoom:
+    """Guideline, 7-pay and CVAT NPT room left before this month's change."""
+    policy, state, options = ctx.policy, ctx.state, ctx.options
+    applied = work.prem.gross_premium if premium_done else 0.0
+    guideline = None
+    if policy.is_gpt and options.guideline_cap_enabled:
+        limit = max(
+            floor_monthly_cent(policy.gsp),
+            _accumulate_guideline_premium(state, policy, work.is_anniversary, work.attained_age))
+        paid = work.prem.premiums_to_date if premium_done else work.premiums_to_date
+        guideline = max(0.0, limit - (paid - work.withdrawals_to_date))
+    seven_pay = npt = None
+    if _tamra_force(options, policy) and not policy.is_mec:
+        tamra_year = _tamra_year(policy, work.month_date)
+        if tamra_year <= 7:
+            seven_pay = max(
+                0.0, policy.tamra_7pay_level * tamra_year - state.accumulated_7pay - applied)
+        elif policy.is_cvat and ctx.npt is not None and ctx.npt.dcv_known:
+            tpp, epp = premium_load_rates(ctx.rates, work.rate_year)
+            premium, _ = ctx.npt.npt_for_month(
+                policy, duration=work.duration, gross_withdrawal=work.wd.gross_withdrawal,
+                av_after_changes=work.av, tpp=tpp, epp=epp,
+                days=float(getattr(getattr(work, "intr", None), "days_in_month", 0.0) or 0.0))
+            if premium is not None:
+                npt = max(0.0, premium - applied)
+    return ChangePremiumRoom(guideline=guideline, seven_pay=seven_pay, npt=npt)
+
+
+def _fold_change_charge_premium(work: MonthWork) -> None:
+    """Add the policy-change premium to the month's premium result.
+
+    Called once the month's premium step has run. When the change premium came
+    first, the premium step already started from totals that include it.
+    """
+    split = work.change_premium_split
+    if work.change_premium is None or split is None:
+        return
+    totals = 0.0 if work.change_premium_before_premium else split.gross
+    prem = work.prem
+    work.prem = replace(
+        prem,
+        gross_premium=prem.gross_premium + split.gross,
+        prem_under_target=prem.prem_under_target + split.under_target,
+        prem_over_target=prem.prem_over_target + split.over_target,
+        target_load=prem.target_load + split.target_load,
+        excess_load=prem.excess_load + split.excess_load,
+        flat_load=prem.flat_load + split.flat_load,
+        total_premium_load=prem.total_premium_load + split.total_load,
+        net_premium=prem.net_premium + split.net,
+        premiums_ytd=prem.premiums_ytd + totals,
+        premiums_to_date=prem.premiums_to_date + totals,
+    )
 
 
 def _joint_lives_by_phase(policy) -> Dict[int, JointLives]:
@@ -835,12 +1049,15 @@ def _apply_policy_change_loop(ctx: MonthContext, work: MonthWork) -> tuple:
         ctx.policy_changes or [],
         key=lambda item: _POLICY_CHANGE_ORDER.get(item.kind, 99),
     ):
+        surrender_charge_before = _surrender_charge_before_change(ctx, work, change)
         outcome = _apply_policy_change(
             policy, ctx.config, change, work.attained_age, work.month_date,
             ctx.rates, work.rate_year, work.av, options=ctx.options,
             defer_guideline_recalc=True,
             capture_guideline_before=guideline_before is None,
         )
+        if surrender_charge_before is not None:
+            _record_decrease_charge_coverage(work, outcome, surrender_charge_before)
         work.av += outcome.av_adjustment
         work.policy_change_av_reduction += max(0.0, -outcome.av_adjustment)
         work.tamra_reset = work.tamra_reset or outcome.material_change
@@ -853,6 +1070,28 @@ def _apply_policy_change_loop(ctx: MonthContext, work: MonthWork) -> tuple:
             guideline_before = outcome.guideline_before
             guideline_before_pv_detail = outcome.guideline_before_pv_detail
     return guideline_changes, recalc_change, guideline_before, guideline_before_pv_detail
+
+
+def _surrender_charge_before_change(ctx: MonthContext, work: MonthWork, change) -> Optional[float]:
+    """Full surrender charge on the pre-change units for a change that can take a PSC."""
+    if change.kind not in (PolicyChangeKind.FACE_AMOUNT, PolicyChangeKind.DB_OPTION):
+        return None
+    _, surrender_charge, _, _ = _calculate_surrender_charge(
+        ctx.policy, ctx.rates, work.rate_year, work.month_date, ctx.config,
+        account_value=work.av,
+    )
+    return surrender_charge
+
+
+def _record_decrease_charge_coverage(work: MonthWork, outcome, surrender_charge: float) -> None:
+    """Flag a decrease whose partial surrender charge the surrender value cannot cover."""
+    for detail, psc_key in ((outcome.face_detail, FACE_PSC_KEY), (outcome.dbo_detail, DBO_PSC_KEY)):
+        if detail:
+            record_charge_coverage(
+                detail, psc_key, account_value=work.av,
+                surrender_charge=surrender_charge,
+                policy_debt=work.cap_loan.policy_debt,
+            )
 
 
 def _recalc_policy_change_guidelines(
@@ -974,6 +1213,9 @@ def apply_guideline_forceout(
     if not force_out:
         work.guideline_forceout = 0.0
         return
+    premiums_to_date = work.premiums_to_date
+    if not ctx.options.forceout_projected_premiums:
+        premiums_to_date = min(premiums_to_date, float(policy.premiums_paid_to_date or 0.0))
     (
         work.guideline_forceout,
         work.withdrawals_to_date,
@@ -981,12 +1223,13 @@ def apply_guideline_forceout(
     ) = _apply_guideline_forceout(
         work.gsp_floored,
         work.accumulated_glp,
-        work.premiums_to_date,
+        premiums_to_date,
         work.withdrawals_to_date,
         work.av,
         enabled=ctx.options.force_out_enabled,
         has_guideline_limit=policy.is_gpt,
         prior_exception_mode=work.prior_exception_mode,
+        overdraw_account_value=ctx.options.forceouts_overdraw_account_value,
     )
 
 
@@ -1078,6 +1321,11 @@ def compute_allowances(ctx: MonthContext, work: MonthWork) -> None:
         work.is_anniversary or state.payment_count_policy_year == 0
     )
     npt_premium = _npt_premium_for_month(ctx, work)
+    # A policy-change premium paid ahead of this premium uses up its room.
+    split = getattr(work, "change_premium_split", None)
+    change_premium = split.gross if split is not None else 0.0
+    if npt_premium is not None:
+        npt_premium = max(0.0, npt_premium - change_premium)
     work.allowances = compute_premium_allowances(PremiumAllowanceInput(
         is_cvat=policy.is_cvat,
         is_gpt=policy.is_gpt,
@@ -1089,7 +1337,7 @@ def compute_allowances(ctx: MonthContext, work: MonthWork) -> None:
         force_out=work.guideline_forceout,
         loan_repay_from_forceout=0.0,
         seven_pay_level=policy.tamra_7pay_level,
-        amount_in_7pay=work.accumulated_7pay_base,
+        amount_in_7pay=work.accumulated_7pay_base + change_premium,
         tamra_year=work.tamra_year,
         tamra_month_of_year=work.tamra_moy,
         policy_month=work.next_month,
@@ -1901,6 +2149,7 @@ def run_month(ctx: MonthContext, convention: TimingConvention) -> MonthlyState:
         apply_guideline_forceout(ctx, convention, work)
         sync_segments(work, "Force-out")
         _premium_block(ctx, work)
+        _fold_change_charge_premium(work)
     deduct_monthly_charges(ctx, convention, work)
     sync_segments(work, "Monthly deduction", work.av_after_charge)
     apply_exception_premium(ctx, convention, work)
@@ -1997,6 +2246,7 @@ def _premium_then_withdrawal(
     apply_guideline_forceout(ctx, convention, work)
     sync_segments(work, "Force-out")
     work.av_before_deduction = work.av
+    _fold_change_charge_premium(work)
     work.prem = replace(
         work.prem, av_after_premium=work.av, cost_basis=work.cost_basis)
 
@@ -2054,6 +2304,10 @@ def _change_and_target_fields(
             "guideline_recalc": work.guideline_recalc,
             "dbo_change_detail": work.dbo_change_detail,
             "face_change_detail": work.face_change_detail,
+            "change_charge_premium": (
+                work.change_premium.gross if work.change_premium else 0.0),
+            "change_premium_detail": (
+                work.change_premium.detail() if work.change_premium else {}),
         })
     return fields
 
@@ -4674,13 +4928,15 @@ def _apply_guideline_forceout(
     enabled: bool,
     has_guideline_limit: bool,
     prior_exception_mode: bool,
+    overdraw_account_value: bool = False,
 ) -> tuple[float, float, float]:
     """Guideline force-out (CalcEngine KX).
 
     The limit is the GREATER of GSP and accumulated GLP. The force-out is the
     cumulative premium-net-of-withdrawals above that limit, capped by available
-    account value. It is disabled when TEFRA conformance is off, when the policy
-    has no guideline-premium limit, or once exception mode is on (so the
+    account value unless ``overdraw_account_value`` takes it in full (the AV
+    then goes negative). It is disabled when TEFRA conformance is off, when the
+    policy has no guideline-premium limit, or once exception mode is on (so the
     exception premium is not immediately clawed back).
     """
     if (not enabled) or (not has_guideline_limit) or prior_exception_mode:
@@ -4688,7 +4944,8 @@ def _apply_guideline_forceout(
 
     guideline_limit = max(gsp, accumulated_glp)
     excess = max(0.0, (premiums_to_date - withdrawals_to_date) - guideline_limit)
-    forceout = min(max(0.0, account_value_before_premium), excess)
+    forceout = excess if overdraw_account_value else min(
+        max(0.0, account_value_before_premium), excess)
     return forceout, withdrawals_to_date + forceout, account_value_before_premium - forceout
 
 

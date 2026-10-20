@@ -528,6 +528,11 @@ def test_non_default_settings_are_collected_for_support_and_defaults_are_silent(
     assert non_default_settings_lines(IllustrationOptions(exact_days_interest=False)) == []
     # IUL-only options are not disclosed (or printed) on a UL report.
     assert non_default_settings_lines(IllustrationOptions(iul_wair_crediting=True)) == []
+    assert non_default_settings_lines(IllustrationOptions(
+        forceouts_overdraw_account_value=True, forceout_projected_premiums=False)) == [
+        "GUIDELINE FORCE-OUTS TAKEN IN FULL EVEN BELOW ZERO ACCOUNT VALUE",
+        "PROJECTED PREMIUMS EXEMPT FROM GUIDELINE FORCE-OUT",
+    ]
 
     settings = IllustrationOptions(conform_to_tefra=False, exact_days_interest=True,
                                    loan_repay_principal_first=True)

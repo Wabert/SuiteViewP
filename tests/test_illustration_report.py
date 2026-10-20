@@ -337,6 +337,37 @@ def test_report_distinguishes_tamra_premium_restriction():
     ]
 
 
+def test_report_marks_monthly_deduction_premium_capped_by_guideline():
+    """A Monthly Deduction premium cut back by the guideline room gets the G footnote.
+
+    The MD premium is capped in the engine's exception phase (``md_premium_capped``),
+    not the scheduled-premium chain, so ``premium_capped_by_guideline`` stays False.
+    """
+    results = _results()
+    for state in results[1:]:
+        state.guideline_forceout = 0.0
+        state.premium_capped = False
+        state.premium_capped_by_guideline = False
+    capped = next(
+        state for state in results
+        if state.policy_year == 9 and state.policy_month == 4
+    )
+    capped.md_premium_capped = True
+
+    report = build_ul_report(_policy(), results, run_date=date(2026, 6, 10))
+
+    year8, year9 = report.ledger
+    assert MARKER_GUIDELINE_CAP not in year8.markers.split()
+    assert year9.markers.split() == [MARKER_GUIDELINE_CAP]
+    assert any(legend.startswith(f"{MARKER_GUIDELINE_CAP} - ")
+               and "GUIDELINE PREMIUM LIMIT" in legend
+               for legend in report.footnote_legends)
+    assert report.request_intro == [
+        "THE FOLLOWING ACTIVITY WAS REQUESTED IN PREPARING THIS ILLUSTRATION. "
+        "HOWEVER, PREMIUMS MAY BE RESTRICTED BY GUIDELINE PREMIUM LIMITS."
+    ]
+
+
 def test_report_combines_guideline_and_tamra_restriction_intro():
     results = _results()
     restricted = next(
@@ -585,6 +616,78 @@ def test_report_keeps_premium_outlay_heading_without_loan_repayments():
     assert not report.loan_repayments_illustrated
     assert "PREMIUM" in ledger
     assert "LOAN REPAY" not in ledger
+
+
+def _ledger_text(report) -> str:
+    from suiteview.illustration.ui.report_tab import format_report_pages
+
+    ledger_page = next(page for page in format_report_pages(report)
+                       if any("PROCEEDS" in line for line in page[:12]))
+    return " ".join(" ".join(ledger_page).split())
+
+
+def test_explanation_of_proceeds_always_prints_under_the_ledger():
+    report = build_ul_report(_policy(), _results(), run_date=date(2026, 7, 22))
+
+    assert report.proceeds_explanation == (
+        "EXPLANATION OF PROCEEDS: ACTUAL DISTRIBUTIONS FROM THE POLICY (LOANS, WITHDRAWALS "
+        "AND FORCEOUTS) ARE SHOWN IN THE PROCEEDS COLUMN.")
+    ledger = _ledger_text(report)
+    assert report.proceeds_explanation in ledger
+    assert ledger.index(report.proceeds_explanation) < ledger.index(
+        "PREMIUMS, WITHDRAWALS, AND LOANS ARE ASSUMED")
+    assert "RESTRICTED" not in " ".join(report.request_lines)
+
+
+def test_restricted_withdrawal_is_marked_and_explained_under_the_ledger():
+    """UE204564: a $5,000 year-8 withdrawal the surrender value reduced to $0."""
+    inputs = IllustrationInputSet(dated_transactions=[
+        DatedTransaction(kind=TransactionKind.WITHDRAWAL,
+                         effective_date=date(2026, 11, 9), amount=5000.0),
+        DatedTransaction(kind=TransactionKind.WITHDRAWAL,
+                         effective_date=date(2027, 11, 9), amount=750.0),
+    ])
+    results = _results()
+    results[1].input_withdrawal = 5000.0
+    results[1].applied_net_withdrawal = 0.0
+    results[13].input_withdrawal = 750.0
+    results[13].applied_net_withdrawal = 750.0
+
+    report = build_ul_report(_policy(), results, future_inputs=inputs,
+                             run_date=date(2026, 7, 22))
+
+    assert report.request_lines[-2:] == [
+        "ANNUAL WITHDRAWAL OF $5,000.00 IN POLICY YEAR 8 - RESTRICTED, SEE EXPLANATION "
+        "OF PROCEEDS",
+        "ANNUAL WITHDRAWAL OF $750.00 IN POLICY YEAR 9",
+    ]
+    assert report.proceeds_explanation.endswith(
+        "ARE SHOWN IN THE PROCEEDS COLUMN. REQUESTED PROCEEDS MARKED AS RESTRICTED WERE "
+        "REDUCED DUE TO THE AVAILABLE SURRENDER VALUE.")
+    assert report.proceeds_explanation in _ledger_text(report)
+
+
+def test_restricted_loan_run_is_marked():
+    policy = _policy()
+    policy.duration = 78
+    policy.policy_year = 7
+    inputs = IllustrationInputSet(dated_transactions=[
+        DatedTransaction(kind=TransactionKind.LOAN, effective_date=date(2026, 11, 9),
+                         amount=3000.0, metadata={"mode": "A"}),
+        DatedTransaction(kind=TransactionKind.LOAN, effective_date=date(2027, 11, 9),
+                         amount=3000.0, metadata={"mode": "A"}),
+    ])
+    results = _results()
+    restricted_month = next(i for i, s in enumerate(results) if s.date == date(2027, 11, 9))
+    results[restricted_month - 12].applied_regular_loan = 3000.0
+    results[restricted_month].applied_regular_loan = 1200.0
+
+    report = build_ul_report(policy, results, future_inputs=inputs,
+                             run_date=date(2026, 7, 22))
+
+    assert ("ANNUAL FIXED LOAN OF $3,000.00 FOR POLICY YEARS 8 THROUGH 9 - RESTRICTED, "
+            "SEE EXPLANATION OF PROCEEDS") in report.request_lines
+    assert "MARKED AS RESTRICTED" in report.proceeds_explanation
 
 
 def test_premium_plus_loan_repay_heading_is_centered_over_the_outlay_figures():

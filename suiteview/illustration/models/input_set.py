@@ -342,6 +342,14 @@ class IllustrationOptions:
     # always returns the leftover to the premium pool; this option gates it.)
     apply_excess_repayment_as_premium: bool = False
 
+    # Apply premium needed to cover policy change surrender charge — when a
+    # specified face decrease or a DB option A to B change assesses a partial
+    # surrender charge the surrender value cannot cover, solve and apply the
+    # premium that covers it, after the month's withdrawal and before the change
+    # (``core/change_charge_premium.py``). Off by default: such a decrease stops
+    # the report (``core/decrease_charge_check.py``).
+    cover_change_surrender_charge: bool = False
+
     # Loan repayment order for arrears loans. Off (default, conservative) pays
     # accrued loan interest before principal; on pays principal first, as
     # CyberLife applies a PL repayment to principal while the accrued interest
@@ -424,6 +432,18 @@ class IllustrationOptions:
     # Internal comparison basis: suppress distributions without relaxing premium
     # acceptance caps, TEFRA/TAMRA or the GP exception machinery.
     guideline_forceouts: bool = True
+
+    # Internal-only (not exposed in the UI). Take the full guideline force-out
+    # even when it exceeds the account value, driving the AV (more) negative,
+    # instead of capping it at the available AV (CalcEngine KX). Sole consumer:
+    # PolView GEP v2 "Min Prem w Forceouts", which needs every force-out to show
+    # up in the premium required later.
+    forceouts_overdraw_account_value: bool = False
+
+    # Internal-only. False tests force-outs against the opening premiums to date
+    # only, so premiums paid during the projection (GEP premiums) are never
+    # forced back out. Sole consumer: PolView GEP v2 "Min Prem w Forceouts".
+    forceout_projected_premiums: bool = True
 
     @property
     def force_out_enabled(self) -> bool:

@@ -434,9 +434,11 @@ get_tooltip_manager().reload()
 ### PolView Tab Design
 
 #### PolicyTab Layout
-- Three columns: Policy Information, Billing & Valuation, Marketing & Loan
-- No header section (removed per user preference)
-- Policy Number, Company, and Plancode shown at top of Policy Information column
+- Three untitled columns: identification/status; billing, entry codes,
+  Participation Type Code (base `LH_COV_PHA.DIV_PTP_TYP_CD`), nonforfeiture/dividend
+  options and valuation; marketing and loan
+- No header section or group titles (removed per user preference)
+- Policy Number, Company, and Plancode shown at top of the first column
 - All columns pack fields to top with consistent spacing
 
 #### AdvProdValuesTab Layout

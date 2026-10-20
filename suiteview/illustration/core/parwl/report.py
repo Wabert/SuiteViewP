@@ -118,7 +118,7 @@ def _dividend_statement(option: str, secondary: str, deposit_rate: Optional[floa
     interest = f" AT {deposit_rate:.2%} INTEREST" if deposit_rate is not None else " AT INTEREST"
     return {
         "1": "DIVIDENDS ARE ASSUMED TO BE PAID IN CASH.",
-        "2": f"DIVIDENDS ARE ASSUMED TO REDUCE THE PREMIUMS DUE; ANY EXCESS IS {rest}.",
+        "2": f"DIVIDENDS ARE ASSUMED TO REDUCE THE FIRST PREMIUM DUE EACH POLICY YEAR; ANY EXCESS IS {rest}.",
         "3": f"DIVIDENDS ARE ASSUMED TO BE LEFT ON DEPOSIT{interest}.",
         "4": "DIVIDENDS ARE ASSUMED TO PURCHASE PAID-UP ADDITIONS.",
         "5": "DIVIDENDS ARE ASSUMED TO PURCHASE ONE YEAR TERM INSURANCE.",
@@ -170,12 +170,22 @@ def _premium_lines(result: ParWLResult, months: Sequence[ParWLMonth], mode: str)
         return ["NO FURTHER PREMIUMS ARE ILLUSTRATED"]
     if all("premium waived" in m.notes for m in billed):
         return ["PREMIUMS ARE WAIVED UNDER THE WAIVER OF PREMIUM BENEFIT"]
-    first, last = billed[0], billed[-1]
-    text = (f"{mode} PREMIUMS OF ${first.premium_billed:,.2f} FROM {short_date(first.when)} "
-            f"(YEAR {first.policy_year}) THROUGH {short_date(last.when)} (YEAR {last.policy_year})")
-    if len({m.premium_billed for m in billed}) > 1:
-        text += ", CHANGING AS RIDERS AND BENEFITS EXPIRE"
-    return [text]
+    segments: List[List[ParWLMonth]] = []
+    for month in billed:
+        if segments and segments[-1][0].premium_frequency == month.premium_frequency:
+            segments[-1].append(month)
+        else:
+            segments.append([month])
+    lines = []
+    for segment in segments:
+        first, last = segment[0], segment[-1]
+        label = MODE_LABELS.get(first.premium_frequency, mode)
+        text = (f"{label} PREMIUMS OF ${first.premium_billed:,.2f} FROM {short_date(first.when)} "
+                f"(YEAR {first.policy_year}) THROUGH {short_date(last.when)} (YEAR {last.policy_year})")
+        if len({m.premium_billed for m in segment}) > 1:
+            text += ", CHANGING AS RIDERS AND BENEFITS EXPIRE"
+        lines.append(text)
+    return lines
 
 
 def _assumption_lines(result: ParWLResult, mode: str) -> List[str]:

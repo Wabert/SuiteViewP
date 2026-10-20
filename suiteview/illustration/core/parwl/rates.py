@@ -35,6 +35,8 @@ from suiteview.illustration.core.fixed_premium import (
 )
 from suiteview.illustration.core.schema_reader import SchemaReader, open_schema_reader
 from suiteview.illustration.models.parwl import (
+    BILL_FORM_DIRECT,
+    BILL_FORM_PAC,
     ROLE_PUA_RIDER,
     ROLE_TERM_RIDER,
     ParWLCoverage,
@@ -188,7 +190,9 @@ class ParWLRates:
 
     coverages: Dict[int, CoverageRates]
     loan_rate: Optional[float] = None
-    mode_factors: Tuple[ModeFactors, ...] = ()
+    mode_factors: Tuple[ModeFactors, ...] = ()            # the record's bill form
+    # Mode factors of the bill forms an illustration can switch to (BILL_FORM_DIRECT / PAC).
+    form_mode_factors: Dict[str, Tuple[ModeFactors, ...]] = field(default_factory=dict)
     notes: List[str] = field(default_factory=list)
 
     def coverage(self, phase: int) -> CoverageRates:
@@ -197,8 +201,10 @@ class ParWLRates:
         except KeyError:
             raise ParWLRateError(f"No rates were loaded for coverage phase {phase}.") from None
 
-    def mode_factor(self, mode: str) -> Optional[ModeFactors]:
-        rows = [m for m in self.mode_factors if m.mode == mode]
+    def mode_factor(self, mode: str, bill_form: Optional[str] = None) -> Optional[ModeFactors]:
+        """The ``mode`` factors of the record's bill form, or of ``bill_form`` when given."""
+        factors = self.mode_factors if bill_form is None else self.form_mode_factors.get(bill_form, ())
+        rows = [m for m in factors if m.mode == mode]
         return rows[0] if rows else None
 
 
@@ -389,7 +395,12 @@ def load_parwl_rates(policy: ParWLPolicy, repo=None) -> ParWLRates:
             coverages[coverage.phase] = rates
         loan_rate = None
         mode_factors: Tuple[ModeFactors, ...] = ()
+        form_mode_factors: Dict[str, Tuple[ModeFactors, ...]] = {}
         if base_plan is not None:
             loan_rate = _plan_rate(reader, base_plan, "LOAN_REG_CHG", policy.issue_state)
             mode_factors = plan_mode_factors(reader, base_plan, policy.bill_form, policy.base.units, notes)
-    return ParWLRates(coverages=coverages, loan_rate=loan_rate, mode_factors=mode_factors, notes=notes)
+            for form in (BILL_FORM_DIRECT, BILL_FORM_PAC):
+                # A missing set is noted by the engine only when an illustration bills on it.
+                form_mode_factors[form] = plan_mode_factors(reader, base_plan, form, policy.base.units, [])
+    return ParWLRates(coverages=coverages, loan_rate=loan_rate, mode_factors=mode_factors,
+                      form_mode_factors=form_mode_factors, notes=notes)

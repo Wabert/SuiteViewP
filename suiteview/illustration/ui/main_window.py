@@ -40,6 +40,7 @@ from suiteview.illustration.core.illustration_policy_service import (
     coverage_segment_data_warnings,
 )
 from suiteview.illustration.core.calc_engine import ShadowFaceIncreaseError
+from suiteview.illustration.core.decrease_charge_check import BLOCKED_TITLE
 from suiteview.illustration.core.rate_loader import RateLookupError, load_rates
 from suiteview.illustration.core.rate_validation import (
     benefit_rate_override_warnings,
@@ -2242,6 +2243,12 @@ class IllustrationWindow(FramelessWindowBase):
             self.values_tab.set_guaranteed_results(result.policy, result.guaranteed)
         elif result.report.guaranteed_error:
             self.values_tab.set_guaranteed_failure(result.report.guaranteed_error)
+        if result.report.blocked_reason:
+            self.report_tab.display_blocked(result.report.blocked_reason)
+            self.tabs.setCurrentWidget(self.report_tab)
+            self._show_status(result.status)
+            QMessageBox.warning(self, BLOCKED_TITLE, result.report.blocked_reason)
+            return
         self.report_tab.display_report(
             result.report.report,
             guaranteed_error=result.report.guaranteed_error,

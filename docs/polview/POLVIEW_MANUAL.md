@@ -44,7 +44,9 @@ pending, never a GUI-thread query or a guess. RERUN shows the same strip under
 its lookup bar (same chips, Timeline / Notes / Copy; purple frame, no suggested
 actions), reading facts live because it loads synchronously; see
 `docs/POLVIEW_CLAUDE.md` "Usability layer". Show the definition of life as
-**GPT**, never "GP" (reads as Grace Period). Optional tabs keep a fixed
+**GPT**, never "GP" (reads as Grace Period). GPT is a neutral chip; the less
+common **CVAT** gets its own amber-to-red gradient tone (`CVAT`) so it stands
+out, distinct from the GEP chip's gradient. Optional tabs keep a fixed
 position and grey out with the reason instead of disappearing. The lookup bar
 (shared with RERUN) accepts pasted references and completes recent policies by
 number or insured name; it never runs commands. A **Shortcuts** button in the
@@ -527,3 +529,67 @@ Regression coverage: `tests/test_glp_target_engine.py` uses the real engine;
 Calculate action read-only (optional `--output` writes the verification JSON).
 `--expect-opening-av` checks the starting post-deduction AV; `--reference` can
 compare displayed ledger cells against a supplied JSON list keyed by Date.
+
+## GEP v2 premium-schedule projections
+
+Policy Support's **GEP v2** button opens a separate page (`ui/tabs/gep_v2_page.py`
+over `services/gep_v2.py`); the GLP Exception page above is unchanged. GEP v2
+takes payment timing out of the question. Premiums are paid only on the
+**premium dates**: each policy anniversary after the quote and before the target,
+then the target monthliversary (the target date, or the first monthliversary
+after it). A target two anniversaries out therefore gets two premiums. Nothing is
+paid in between. Monthly deductions run on every monthliversary with
+`IllustrationOptions.no_lapse`, so the account value may go negative without
+lapsing. The policy **makes** a premium date when that date's AV after its
+premium and **before that day's monthly deduction**
+(`guideline_av_before_monthly_deduction`, ledger column **AV bf MD**, bold on
+premium-date rows) is not negative. All three tabs open from the same basis as GLP
+Exception (`prepare_target_projection`): the Interim AV Quote, current GP
+accumulators and monthly compounding.
+
+Every premium is figured the same way, in date order, given the premiums already
+paid. The tabs are, in order:
+
+* **Max Premium Projection** pays what the GPT limit allows, treated as
+  received just **before** its date: `max(0, limit_before - (PremTD - WDs))`,
+  where `limit_before` is `max(GSP, AccumGLP)` on the row before that month. The
+  premium date's own anniversary GLP does **not** count, because that premium is
+  subject to the ending year's limit. GLP from earlier anniversaries does count, so
+  a second anniversary premium is the GLP the first anniversary added. Guideline
+  forceouts and the acceptance cap stay on.
+* **Min Prem w Forceouts** solves the least whole-cent premium for each date that
+  keeps the policy in force on it, given the earlier minimum premiums, **with
+  guideline forceouts processed**. Every forceout is taken in full even when the
+  AV is (or goes) negative (`IllustrationOptions.forceouts_overdraw_account_value`),
+  so it surfaces in the premium required at the next premium date. Forceouts are
+  measured on the opening premiums to date
+  (`IllustrationOptions.forceout_projected_premiums=False`): the scenario's own
+  premiums are GEP premiums and are never forced back out. The acceptance cap
+  is off (`cap_premiums_at_acceptance=False`). This is the GEP premium with the
+  forceouts included — e.g. a negative GLP shrinking AccumGLP each anniversary.
+* **Min Prem No outs** solves the same least premiums with the guideline limit
+  and forceouts off — the premium needed if a negative GLP were set to zero. The
+  premium is `$0` when none is needed.
+
+The **Calculation Summary** (`GepV2SummaryPanel`) is two side-by-side blocks,
+three lines tall:
+
+| Left block | Right block |
+| --- | --- |
+| Max Premium Projection: Prem, AV bf MD | GEP Exception Required: With / Without Forceouts |
+| Min Prem w Forceouts: Prem, AV bf MD, Force outs | AccumGLP: Current / New |
+| Min Prem No outs: Prem, AV bf MD | Premium to Target Date: With / Without Forceouts |
+
+**Prem** is the scenario's total premium; **AV bf MD** is the target date's AV
+after its premium and before its deduction (the in-force test, so ~$0 on the
+Min schedules and the shortfall on a failing Max); **Force outs** totals the
+forceouts taken. **GEP Exception Required** is `max(0, Min total - Max total)`
+for each Min schedule ("Not required" when the GPT limit covers it). **Current
+AccumGLP** is the opening row's; **New AccumGLP** = Current + GEP Exception
+Required with forceouts. **Premium to Target Date** is each Min schedule's
+total premium through the target date. Required amounts show in red. The quote basis is the
+summary's tooltip, and an unavailable Interim AV Quote is reported in the status
+line. No scenario enforces the TAMRA 7-pay cap; a resulting MEC is noted in
+the basis rather than capped. Export (a new unsaved Excel workbook: summary,
+Max, Min w Forceouts and Min No outs sheets) uses the same values. Regression:
+`tests/test_gep_v2.py`.

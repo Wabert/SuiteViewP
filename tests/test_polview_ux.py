@@ -159,6 +159,22 @@ def test_gep_chip_only_for_inforce_gpt_policy_with_zero_glp():
     assert "gep" not in keys(glp=Decimal("0"), system_code="P")
 
 
+def test_cvat_chip_is_colourful_and_gpt_stays_neutral():
+    from suiteview.polview.ui.policy_summary_strip import CHIP_COLORS, chip_style
+
+    today = date(2026, 9, 24)
+
+    def dol_chip(**overrides):
+        chips = insights.build_policy_summary(summary_policy(**overrides), today=today).chips
+        return next(c for c in chips if c.key == "dol")
+
+    cvat = dol_chip(gpt_cvat="CVAT")
+    assert cvat.text == "CVAT" and cvat.tone == insights.CVAT
+    assert dol_chip().tone == insights.NEUTRAL
+    assert "qlineargradient" in chip_style(cvat.tone)
+    assert CHIP_COLORS[insights.CVAT] != CHIP_COLORS[insights.GEP]
+
+
 def test_product_chip_shows_iul_for_index_ul_policies():
     ul = insights.build_policy_summary(summary_policy(), today=date(2026, 9, 24))
     iul = insights.build_policy_summary(summary_policy(display_product_type="IUL"),

@@ -28,6 +28,22 @@ The Illustration window is the Qt boundary.  Widgets read and render drafts;
 5. **Engine** — `run_current_projection()` calls the public
    `suiteview.illustration.api.project_policy` façade.  The service does not
    rewire lower-level engine/rate loaders.
+   **Decrease charge gate** — a specified face decrease, or the face reduction
+   of a DB option A to B change, whose partial surrender charge exceeds the
+   surrender value at the change (account value less the full pre-change
+   surrender charge less policy debt) would be refused by the administration
+   system, even while a no-lapse guarantee keeps the policy in force.  The
+   engine records the pre-change surrender value on the month's face/DBO change
+   detail (`core/decrease_charge_check.record_charge_coverage`); when any month
+   is flagged, `execute_run` skips the guaranteed projection and the report and
+   returns `ReportResult(None, blocked_reason=...)`.  The window still shows the
+   current Values (so the shortfall can be inspected), shows the reason in the
+   Report tab banner (`report_tab.display_blocked`) and in a "Face Decrease Not
+   Allowed" warning.  Regression: `tests/test_illustration_decrease_charge_check.py`.
+   With **Apply premium needed to cover policy change surrender charge** checked,
+   the engine instead pays the covering premium before the change
+   (RERUN_MANUAL); a premium the guideline / 7-pay / NPT limits refuse stops the
+   run with a "Policy Change Premium Not Accepted" `RunFlowError`.
 6. **Guaranteed** — `run_guaranteed_projection_safe()` replays locked current
    cash flows under guaranteed assumptions.  Failure is non-fatal for the run
    and is returned as a banner/status message, but it makes the formal

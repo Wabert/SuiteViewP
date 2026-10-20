@@ -602,6 +602,9 @@ def _format_report_pages_from_specs(
                 page.blank()
                 for legend in report.footnote_legends:
                     page.add_wrapped(legend)
+            if report.proceeds_explanation:
+                page.blank()
+                page.add_wrapped(report.proceeds_explanation)
             page.blank()
             page.add_wrapped(_LEDGER_ASSUMPTION_NOTE)
         pages.append(page.lines)
@@ -937,10 +940,11 @@ class IllustrationReportTab(QWidget):
         if self._output_folder:
             self.output_folder_edit.setText(self._output_folder)
 
-        # Guaranteed-run failure banner — shown when the guaranteed-basis
-        # projection raised, so the report's blank GUARANTEED VALUES columns
-        # are never mistaken for computed zeros. Print to PDF is disabled
-        # while it shows (print_blocked_reason).
+        # Report warning banner — shown when the guaranteed-basis projection
+        # raised, so the report's blank GUARANTEED VALUES columns are never
+        # mistaken for computed zeros (Print to PDF is disabled while it shows:
+        # print_blocked_reason), or when the run could not be illustrated at
+        # all (display_blocked).
         self.guaranteed_warning = QLabel("", self)
         self.guaranteed_warning.setWordWrap(True)
         self.guaranteed_warning.setStyleSheet(
@@ -969,6 +973,7 @@ class IllustrationReportTab(QWidget):
         self._report = None
         self._guaranteed_error = None
         self._abr_pages = None
+        self._blocked_reason = None
         self.print_pdf_btn.setEnabled(False)
         self.print_pdf_btn.setToolTip(_PRINT_TOOLTIP)
         self.guaranteed_warning.setVisible(False)
@@ -989,6 +994,8 @@ class IllustrationReportTab(QWidget):
         explanation) for the main window's per-policy session cache."""
         if self._abr_pages is not None:
             return {"kind": "abr", "pages": self._abr_pages}
+        if self._blocked_reason is not None:
+            return {"kind": "blocked", "reason": self._blocked_reason}
         if self._report is not None:
             return {"kind": "report", "report": self._report,
                     "guaranteed_error": self._guaranteed_error}
@@ -1001,6 +1008,9 @@ class IllustrationReportTab(QWidget):
             return False
         if state.get("kind") == "abr" and state.get("pages"):
             self.display_abr_quote(state["pages"])
+            return True
+        if state.get("kind") == "blocked" and state.get("reason"):
+            self.display_blocked(state["reason"])
             return True
         if state.get("kind") == "report" and state.get("report") is not None:
             self.display_report(state["report"], state.get("guaranteed_error"))
@@ -1021,6 +1031,14 @@ class IllustrationReportTab(QWidget):
         self.status_label.setText(
             "ABR Quote — explanation of the premium solve (no illustration "
             "report is produced).")
+
+    def display_blocked(self, reason: str):
+        """No report: the run cannot be illustrated (``ReportResult.blocked_reason``).
+        The reason shows in the warning banner and Print to PDF stays disabled."""
+        self.clear("Illustration report not generated.")
+        self._blocked_reason = reason
+        self.guaranteed_warning.setText(f"⚠ {reason}")
+        self.guaranteed_warning.setVisible(True)
 
     def display_report(self, report: IllustrationReport, guaranteed_error: Optional[str] = None):
         self.clear("")

@@ -8,6 +8,7 @@ Strategy table:
 | Lumpsum to next premium | bridge window survives | seed shortfall/load gross-up, ×2, 24 tries | half-cent bracket | round up to cent and verify |
 | Loan payoff | check-date balance paid off | balance spread over payments, ×2, 24 tries | half-cent bracket | round up to cent and verify |
 | Level to exception | horizon survives / clean transition | modal premium or $1, ×2, 24 tries | half-cent bracket | round up to cent and verify |
+| GEP v2 min premium per date | that date's AV before MD ≥ 0 | AV shortfall, ×1.25, 40 tries | half-cent bracket | round up to cent and verify |
 | Premium duration | target value reached | integer duration 1..maturity | integer lower-bound bisection | no money rounding |
 | Guideline search | endowment AV reaches face | face/10 or $100, ×2, 40 tries | value tolerance or max iterations | unrounded midpoint |
 
