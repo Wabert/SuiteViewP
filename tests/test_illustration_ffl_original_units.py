@@ -134,7 +134,7 @@ def test_policy_prefetch_reports_the_original_units_basis_for_ffl():
     from suiteview.polview.services.policy_prefetch import _surrender_values
 
     basis = SimpleNamespace(segments=[_segment(50.0, 100.0)], base_segment=None, account_value=1000.0,
-                            valuation_date=date(2026, 9, 1))
+                            valuation_date=date(2026, 9, 1), total_loan_balance=0.0)
     state = SimpleNamespace(scr_rates_by_coverage={"cov1": 2.0}, surrender_charges_by_coverage={"cov1": 200.0},
                             surrender_charge=200.0, surrender_value=800.0, policy_debt=0.0)
     values = _surrender_values(basis, FFL, IllustrationRates(), state)

@@ -204,6 +204,8 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
 
         # Drag / resize state
         self._drag_pos: Optional[QPoint] = None
+        # Header press waiting to become a native (system) move once it drags.
+        self._native_move_origin: Optional[QPoint] = None
         self._is_maximized = False
         self._resize_margin = 6
         self._resizing = False
@@ -216,6 +218,7 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
         # resize path (edge widgets + mouse handlers) is disabled.
         self._native_resize = _IS_WINDOWS
         self._native_installed = False
+        self._fitted_to_screen = False
 
         # Snap-to-edge state
         self._is_snapped = False
@@ -256,6 +259,16 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
         self._update_size_label()
 
     # ── Override point ──────────────────────────────────────────────
+
+    def hasHeightForWidth(self) -> bool:
+        """``min_size`` alone bounds the window.
+
+        Content with height-for-width (word-wrapped labels) otherwise makes Qt force a
+        top-level window back up to the content's height on every resize: on a laptop
+        work area a top/side drag then grows the window past the screen, header and
+        all (RERUN, 10/23/2026). Too-tall content is clipped like any other.
+        """
+        return False
 
     def build_content(self) -> QWidget:
         """Return the main body widget for the window.
@@ -540,10 +553,22 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
             if hasattr(self, 'header_bar') and self.header_bar.geometry().contains(pos):
                 widget_at = self.childAt(pos)
                 if not isinstance(widget_at, QPushButton):
+                    # Native path: once the press turns into a drag, Windows/DWM moves
+                    # the window (smooth at any display scaling, Aero Snap, drag to
+                    # restore when maximized). Starting it on the press itself would
+                    # swallow the header's double-click.
+                    if self._native_resize:
+                        self._native_move_origin = event.globalPosition().toPoint()
+                        event.accept()
+                        return
                     self._drag_pos = event.globalPosition().toPoint()
                     event.accept()
                     return
         super().mousePressEvent(event)
+
+    def _start_native_move(self) -> bool:
+        handle = self.windowHandle()
+        return bool(handle is not None and handle.startSystemMove())
 
     # ── Snap-to-edge helpers ──────────────────────────────────────────────
 
@@ -614,6 +639,19 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
             return
 
         if event.buttons() == Qt.MouseButton.LeftButton:
+            origin = self._native_move_origin
+            if origin is not None:
+                global_pos = event.globalPosition().toPoint()
+                if (global_pos - origin).manhattanLength() >= QApplication.startDragDistance():
+                    self._native_move_origin = None
+                    # Catch up with the cursor first: the OS move keeps the window
+                    # where it is relative to the cursor from here on.
+                    self.move(self.pos() + (global_pos - origin))
+                    if not self._start_native_move():
+                        self._drag_pos = global_pos    # no system move: the Python drag below
+                event.accept()
+                if self._drag_pos is None:
+                    return
             # Resize
             if self._resizing and self._resize_edge and self._resize_start_pos is not None:
                 delta = event.globalPosition().toPoint() - self._resize_start_pos
@@ -670,6 +708,7 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
             self._hide_snap_preview()
 
         self._drag_pos = None
+        self._native_move_origin = None
         self._resizing = False
         self._resize_edge = None
         self._resize_start_pos = None
@@ -698,6 +737,31 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
         super().showEvent(event)
         if self._native_resize and not self._native_installed:
             self._install_native_frame()
+        if not self._fitted_to_screen:
+            self._fitted_to_screen = True
+            self._fit_to_screen()
+
+    def _fit_to_screen(self):
+        """Keep a first-shown normal window inside its screen's work area.
+
+        A default size made for a large monitor (RERUN's 1200 x 825) is taller than a
+        laptop's work area at 125-150% scaling; shown as-is its bottom edge is
+        unreachable and its header can end up off screen.
+        """
+        if self.isMaximized() or self.isMinimized() or self.isFullScreen():
+            return
+        screen = self.screen() or QApplication.primaryScreen()
+        if screen is None:
+            return
+        area = screen.availableGeometry()
+        geo = self.geometry()
+        width = max(self.minimumWidth(), min(geo.width(), area.width()))
+        height = max(self.minimumHeight(), min(geo.height(), area.height()))
+        x = min(max(geo.x(), area.left()), max(area.left(), area.right() + 1 - width))
+        y = min(max(geo.y(), area.top()), max(area.top(), area.bottom() + 1 - height))
+        target = QRect(x, y, width, height)
+        if target != geo:
+            self.setGeometry(target)
 
     def _install_native_frame(self):
         """Give the frameless window a native sizing frame so Windows/DWM

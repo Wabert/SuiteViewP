@@ -700,13 +700,33 @@ def plan_parts(repo: RatesSchemaRepository, plan: PlanDef, state: str, issue_age
 
 
 def choose_div(assignments: Sequence[DivAssignment], key: RateKey, rein: str) -> Tuple[Optional[DivAssignment], List[str]]:
-    """The dividend assignment, with the same fallbacks as ``choose_cell`` (REIN '' unless RGA)."""
+    """The dividend assignment, with the same fallbacks as ``choose_cell`` (REIN '' unless RGA).
+
+    Sub-series keyed rows (``RATE_ASSIGN_DIV.SUBSERIES``) win when one matches the coverage's
+    sub-series, with sex and class ignored, as ``_choose_cell`` does for CV cells and
+    ``rates.fn_DIV_RATE_SUB`` for dividends (NB1SL200: rate sex M, sub-series FL -> 1SL2FL).
+    Otherwise only the blank sub-series rows are read by sex/class/band, as before.
+    """
     reins = _candidates(rein, [""])
+    keyed = [a for a in assignments if a.subseries and key.subseries and a.subseries == key.subseries]
+    for rein_value in reins if keyed else ():
+        for band in _candidates(key.band, [UNBANDED]):
+            matches = [a for a in keyed if a.rein == rein_value and a.band == band
+                       and a.state in (key.state, ALL_STATES)]
+            if matches:
+                chosen = min(matches, key=lambda a: a.state != key.state)
+                notes = [f"sub-series {key.subseries}"]
+                if band != key.band:
+                    notes.append(f"band {band}")
+                if rein_value != rein:
+                    notes.append(f"REIN '{rein_value}' (policy {rein})")
+                return chosen, notes
+    plain = [a for a in assignments if not a.subseries]
     for rein_value in reins:
         for sex in _candidates(key.sex, [UNISEX]):
             for rate_class in _candidates(key.rate_class, CLASS_FALLBACKS):
                 for band in _candidates(key.band, [UNBANDED]):
-                    matches = [a for a in assignments if a.rein == rein_value and a.sex == sex
+                    matches = [a for a in plain if a.rein == rein_value and a.sex == sex
                                and a.rate_class == rate_class and a.band == band
                                and a.state in (key.state, ALL_STATES)]
                     if matches:
@@ -742,7 +762,8 @@ def div_parts(repo: RatesSchemaRepository, ctx: CellContext) -> Parts:
     if chosen is None:
         parts.missing.append(("DIV", "; ".join(notes)))
         return parts
-    cell = f"{chosen.div_key} '{chosen.user_key}' ({chosen.sex}/{chosen.rate_class}/{chosen.band}/{chosen.state})"
+    cell = f"{chosen.div_key} '{chosen.user_key}' ({chosen.sex}/{chosen.rate_class}/{chosen.band}/{chosen.state}" \
+           f"{f'/sub {chosen.subseries}' if chosen.subseries else ''})"
     schedules = [s for s in repo.div_schedules([chosen.div_key]) if s.user_key == chosen.user_key]
     by_record: Dict[str, List[DivSchedule]] = {}
     for schedule in schedules:

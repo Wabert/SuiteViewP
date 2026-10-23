@@ -11,7 +11,6 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime
-from pathlib import Path
 from typing import Callable, List, Optional, Sequence
 
 import pandas as pd
@@ -22,7 +21,6 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -35,15 +33,12 @@ from suiteview.illustration.core.inforce_check import CheckLine
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 
 from .report_pages import (
-    OUTPUT_FOLDER_EDIT_STYLE,
     PRINT_BUTTON_STYLE,
-    REPORT_BUTTON_STYLE,
     REPORT_LABEL_STYLE,
+    OutputFolderRow,
     default_pdf_name,
     fitting_font_pt,
-    load_output_folder,
     report_sheet,
-    save_output_folder,
     write_pages_pdf,
 )
 from .styles import PURPLE_BG, PURPLE_DARK
@@ -96,25 +91,8 @@ class IllustrationPagesView(QWidget):
         top.addWidget(self.print_pdf_btn)
         layout.addLayout(top)
 
-        folder_row = QHBoxLayout()
-        folder_row.setSpacing(6)
-        folder_label = QLabel("Output folder:")
-        folder_label.setStyleSheet(REPORT_LABEL_STYLE)
-        folder_row.addWidget(folder_label)
-        self.output_folder_edit = QLineEdit()
-        self.output_folder_edit.setPlaceholderText("Prompt for a folder each time (not set)")
-        self.output_folder_edit.setToolTip("Folder where illustration PDFs are saved. Saved across sessions.")
-        self.output_folder_edit.setStyleSheet(OUTPUT_FOLDER_EDIT_STYLE)
-        self.output_folder_edit.setText(load_output_folder())
-        self.output_folder_edit.editingFinished.connect(
-            lambda: self._set_output_folder(self.output_folder_edit.text().strip()))
-        folder_row.addWidget(self.output_folder_edit, 1)
-        browse = QPushButton("Browse…")
-        browse.setToolTip("Choose the folder illustration PDFs are saved to.")
-        browse.setStyleSheet(REPORT_BUTTON_STYLE)
-        browse.clicked.connect(self._on_browse_output_folder)
-        folder_row.addWidget(browse)
-        layout.addLayout(folder_row)
+        self.output_folder_row = OutputFolderRow(self)
+        layout.addWidget(self.output_folder_row)
 
         self.scroll = QScrollArea(self)
         self.scroll.setWidgetResizable(True)
@@ -161,33 +139,14 @@ class IllustrationPagesView(QWidget):
             raise ValueError("Run Values before printing the illustration.")
         write_pages_pdf(self._report.pages, path, fitting_font_pt(self._report.width))
 
-    def _set_output_folder(self, folder: str) -> None:
-        if self.output_folder_edit.text() != folder:
-            self.output_folder_edit.setText(folder)
-        try:
-            save_output_folder(folder)
-        except OSError as exc:
-            QMessageBox.warning(self, "Output folder", f"Could not save the output folder setting: {exc}")
-
-    def _on_browse_output_folder(self) -> None:
-        current = self.output_folder_edit.text().strip()
-        folder = QFileDialog.getExistingDirectory(self, "Choose output folder",
-                                                  current if current and Path(current).is_dir() else "")
-        if folder:
-            self._set_output_folder(folder)
-
     def _on_print_pdf(self) -> None:
         if self._report is None:
             return
         name = default_pdf_name(self._report.policy_number, self._report.plancode, datetime.now())
-        folder = self.output_folder_edit.text().strip()
-        start = str(Path(folder) / name) if folder and Path(folder).is_dir() else name
+        start = self.output_folder_row.pdf_start_path(name)
         path, _ = QFileDialog.getSaveFileName(self, "Print to PDF", start, "PDF Files (*.pdf)")
         if not path:
             return
-        chosen = str(Path(path).resolve().parent)
-        if chosen != folder:
-            self._set_output_folder(chosen)
         try:
             self.write_pdf(path)
         except Exception as exc:  # a failed print must be loud, not a silent no-op

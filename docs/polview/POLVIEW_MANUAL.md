@@ -139,6 +139,12 @@ Regressions: N0100046 / FN2VN300 and S1360299 / 1S134F00,
 `tests/test_policy_prefetch.py`; native profiler supports
 `--expect-surrender-unavailable` and `--expect-surrender-reason` with `--all-tabs`.
 
+Surrender Value is valued at the monthliversary: engine AV less surrender charge
+(ISWL floored at the guaranteed cash value) less the **stored MV-date debt**
+(loan principal + accrued interest). The engine's inforce row instead nets debt
+after accruing that month's arrears loan interest (RERUN's lapse test), so the
+tab swaps the debt rather than showing that end-of-month figure.
+
 Policy Info also shows **Interim AV Quote (MM/DD/YYYY)**, labelled with its quote
 date: the monthliversary AV rolled forward
 to the day the tab is prepared with premiums received since the MV (net amount

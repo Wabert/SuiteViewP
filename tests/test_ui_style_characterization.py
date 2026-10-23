@@ -75,19 +75,20 @@ EXPECTED_MODULE_HASHES = {
 
 EXPECTED_WINDOW_HASHES = {
     "ABRQuoteWindow": "fcfc5ca8edce406a0c7e16738934981b1dbb386bc8e9d8710ea31817e25a1f74",
-    "AdministratorWindow": "a4f5ee692a10f08be03376aca136da7fb8e7749317a45d78ceaf60c7a9d43c21",
+    "AdministratorWindow": "79e32834dce47e0cdfb320cafb9ab1079c114e62b2c441fcfcc3bd84f6774320",
     "AgentChatWindow": "e138df7f7998b43b84b01a99436a347d7302592d1a6f3400cb6909ffc5de3333",
     "AuditWindow": "0db7e4ba6d064e556cb49ef6a90ef97c1fe5a3e566a330f52d47d00743e758a1",
     "EmailAttachmentsWindow": "7ab269da444a210a15336b2639a0076cbc173450c31d5313c19b8833d7653314",
     "FileNavWindow": "99767126eafab660847c9b89826fe4c1a4157bd24f9e64df00bab05fa57a6953",
-    "IllustrationWindow": "90a44439e6eb9a53c3d2414c9512a25d3465f8cde354cb39167f47a25566d98a",
+    # 10/23/2026: + the par WL Illustration Inputs' Riders & Benefits panel (group + note label).
+    "IllustrationWindow": "454972597dcd292f41f04f880fa5ede6b8f04a411390875ac0822099260d8b64",
     "MainframeWindow": "c19845fb1ba4c49d4883ca2ec66fde93d791032d623f1abb5313b5749165de61",
     "PolView": "bbaf7415e20dc812b834606ee382e161df4581d56a23809b153402d532a1733e",
     "QueryObjectViewerWindow": "02e631280c21be8141fe599ce55ca57dce700da1a314b67c68b8a0b8634d40a3",
     "RateManagerWindow": "eada666b1ec94b4be8a15f75330adc53c84cf4066bd0745dc84e87b006dc4f49",
     "ScratchPadWindow": "62c5271ce7065222c9adf3b08686fc2c3428909c686cdbae6e2b77d97dce6fbe",
     "ScreenShotManagerWindow": "c45644f8d613d92199310127474a77a5b9646d937c8837355bbda0213e185b01",
-    "SuiteViewTaskbar": "e0fbeb70cafc1d163455c67187109d0c70e4b84805229ec651f2a53c933cb706",
+    "SuiteViewTaskbar": "e6a85fb0eedbfba5facd579ffde5cb8504fdc897a9333235635431f3d99e51f2",
 }
 
 HEX_LITERAL_RE = re.compile(r"#[0-9A-Fa-f]{3,8}")

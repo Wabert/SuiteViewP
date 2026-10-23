@@ -11,12 +11,22 @@ import math
 import re
 from datetime import datetime
 from html import escape
-from typing import List, Sequence
+from pathlib import Path
+from typing import List, Optional, Sequence
 
-from PyQt6.QtCore import QMarginsF, QSizeF, Qt
+from PyQt6.QtCore import QMarginsF, QObject, QSizeF, Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QPageLayout, QPageSize, QTextDocument
 from PyQt6.QtPrintSupport import QPrinter
-from PyQt6.QtWidgets import QLabel, QSizePolicy
+from PyQt6.QtWidgets import (
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QSizePolicy,
+    QWidget,
+)
 
 from suiteview.core.json_store import read_json, write_json
 from suiteview.core.profile_paths import profile_path
@@ -60,6 +70,103 @@ def save_output_folder(folder: str) -> None:
     settings = read_json(report_settings_file(), default={}) or {}
     settings[OUTPUT_FOLDER_KEY] = folder
     write_json(report_settings_file(), settings)
+
+
+class OutputFolderSetting(QObject):
+    """The one profile-persisted PDF output folder every report page shares.
+
+    Only an Output folder row changes it (typing a folder or Browse…); printing
+    to another folder in the Save dialog is a one-off and never rewrites it.
+    ``changed`` keeps every open row (UL, par WL, term, ISWL RPU, other RERUN
+    windows) showing the same folder, so a stale row can't save an old value.
+    """
+
+    changed = pyqtSignal(str)
+
+    @staticmethod
+    def folder() -> str:
+        return load_output_folder()
+
+    def set_folder(self, folder: str) -> None:
+        """Persist ``folder``; raises ``OSError`` when the settings can't be written."""
+        folder = (folder or "").strip()
+        if folder == load_output_folder():
+            return
+        save_output_folder(folder)
+        self.changed.emit(folder)
+
+
+_output_folder_setting: Optional[OutputFolderSetting] = None
+
+
+def output_folder_setting() -> OutputFolderSetting:
+    """The process-wide output folder setting (shared change signal)."""
+    global _output_folder_setting
+    if _output_folder_setting is None:
+        _output_folder_setting = OutputFolderSetting()
+    return _output_folder_setting
+
+
+class OutputFolderRow(QWidget):
+    """"Output folder: [path] [Browse…]" — the only place the PDF output folder changes."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        label = QLabel("Output folder:")
+        label.setStyleSheet(REPORT_LABEL_STYLE)
+        layout.addWidget(label)
+        self.edit = QLineEdit()
+        self.edit.setPlaceholderText("Prompt for a folder each time (not set)")
+        self.edit.setToolTip(
+            "Folder where illustration PDFs are saved. Saved with your profile across sessions;\n"
+            "it changes only here (saving a PDF somewhere else does not change it).")
+        self.edit.setStyleSheet(OUTPUT_FOLDER_EDIT_STYLE)
+        self.edit.setText(load_output_folder())
+        self.edit.editingFinished.connect(self._on_edited)
+        layout.addWidget(self.edit, 1)
+        self.browse_btn = QPushButton("Browse…")
+        self.browse_btn.setToolTip("Choose the folder illustration PDFs are saved to.")
+        self.browse_btn.setStyleSheet(REPORT_BUTTON_STYLE)
+        self.browse_btn.clicked.connect(self._on_browse)
+        layout.addWidget(self.browse_btn)
+        output_folder_setting().changed.connect(self._show_folder)
+
+    @staticmethod
+    def folder() -> str:
+        """The saved output folder ("" when not set)."""
+        return load_output_folder()
+
+    def pdf_start_path(self, file_name: str) -> str:
+        """Where the Save dialog opens: the saved folder when it exists, else just the name."""
+        folder = self.folder()
+        return str(Path(folder) / file_name) if folder and Path(folder).is_dir() else file_name
+
+    def _show_folder(self, folder: str) -> None:
+        if self.edit.text() != folder:
+            self.edit.setText(folder)
+
+    def _set_folder(self, folder: str) -> None:
+        try:
+            output_folder_setting().set_folder(folder)
+        except OSError as exc:
+            QMessageBox.warning(self, "Output folder", f"Could not save the output folder setting: {exc}")
+        self._show_folder(load_output_folder())
+
+    def _on_edited(self) -> None:
+        # editingFinished also fires on focus-out with nothing typed: only a real
+        # change is saved.
+        if self.edit.text().strip() != load_output_folder():
+            self._set_folder(self.edit.text())
+
+    def _on_browse(self) -> None:
+        current = self.folder()
+        chosen = QFileDialog.getExistingDirectory(
+            self, "Choose output folder", current if current and Path(current).is_dir() else "")
+        if chosen:
+            self._set_folder(chosen)
 
 
 def default_pdf_name(policy_number: str, plancode: str, now: datetime) -> str:

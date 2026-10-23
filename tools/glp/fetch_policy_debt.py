@@ -6,6 +6,7 @@ balances from ``LH_CSH_VAL_LOAN`` (traditional) and ``LH_FND_VAL_LOAN``
 (advanced) exactly the way ``PolicyInformation.get_loans`` /
 ``total_loan_balance`` do:
 
+  * current rows only: MVRY_DT 12/31/9999 (dated rows are MV/anniversary history)
   * principal = LN_PRI_AMT, skipping rows with principal <= 0
   * trad accrued = POL_LN_ITS_AMT only when LN_ITS_AMT_TYP_CD == '2'
   * adv  accrued = POL_LN_ITS_AMT
@@ -108,12 +109,14 @@ def aggregate_loans(db: DB2Connection, table: str, tch_ids: list, trad: bool) ->
     for chunk in _chunks(tch_ids, CHUNK):
         in_list = ",".join(_sql_literal(t) for t in chunk)
         sql = (
-            "SELECT TCH_POL_ID, LN_PRI_AMT, POL_LN_ITS_AMT, LN_ITS_AMT_TYP_CD "
+            "SELECT TCH_POL_ID, LN_PRI_AMT, POL_LN_ITS_AMT, LN_ITS_AMT_TYP_CD, MVRY_DT "
             f"FROM DB2TAB.{table} "
             f"WHERE TCH_POL_ID IN ({in_list})"
         )
         _, rows = db.execute_query_with_headers(sql)
-        for tch, ln_pri, pol_its, its_typ in rows:
+        for tch, ln_pri, pol_its, its_typ, mvry_dt in rows:
+            if "9999" not in str(mvry_dt):
+                continue
             principal = Decimal(str(ln_pri or 0))
             if principal <= 0:
                 continue

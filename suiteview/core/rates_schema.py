@@ -147,6 +147,9 @@ class DivAssignment:
     rein: str
     div_key: str
     user_key: str
+    # RATE_ASSIGN_DIV.SUBSERIES (10/23/2026): '' = a sex/class row; otherwise the row is matched by the
+    # coverage's own sub-series (LIF_PLN_SUB_SRE_CD) with sex and class ignored.
+    subseries: str = ""
 
 
 @dataclass(frozen=True)
@@ -545,13 +548,21 @@ class RatesSchemaRepository:
     # -- 4 DIV -------------------------------------------------------------------
 
     def div_assignments(self, company: str, plancode: str) -> list[DivAssignment]:
+        subseries = "SUBSERIES" if self._div_has_subseries() else "''"
         rows = self._query(
-            "SELECT SEX, RATE_CLASS, BAND, STATE, REIN, DIV_KEY, USER_KEY FROM rates.RATE_ASSIGN_DIV "
+            f"SELECT SEX, RATE_CLASS, BAND, STATE, REIN, DIV_KEY, USER_KEY, {subseries} FROM rates.RATE_ASSIGN_DIV "
             "WHERE COMPANY = ? AND PLANCODE = ?",
             [company, plancode],
         )
         return [DivAssignment(_text(r[0]), _text(r[1]), _text(r[2]), _text(r[3]), _text(r[4]),
-                              _text(r[5]), _key(r[6])) for r in rows]
+                              _text(r[5]), _key(r[6]), _text(r[7])) for r in rows]
+
+    def _div_has_subseries(self) -> bool:
+        """Whether RATE_ASSIGN_DIV has the SUBSERIES column (added 10/23/2026); cached per repository."""
+        if getattr(self, "_div_subseries_column", None) is None:
+            rows = self._query("SELECT COL_LENGTH('rates.RATE_ASSIGN_DIV', 'SUBSERIES')")
+            self._div_subseries_column = bool(rows and rows[0][0])
+        return self._div_subseries_column
 
     def div_schedules(self, div_keys: Sequence[str]) -> list[DivSchedule]:
         if not div_keys:

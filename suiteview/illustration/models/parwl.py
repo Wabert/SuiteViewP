@@ -13,7 +13,7 @@ decimal fractions (0.074 = 7.4%).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Dict, List, Optional, Tuple
 
@@ -267,6 +267,82 @@ class OptionChange:
     secondary: str = ""
 
 
+@dataclass(frozen=True)
+class RiderDrop:
+    """A term rider or supplemental benefit dropped on the monthliversary ``when``.
+
+    Its premium stops from that date (a term rider's death benefit too, and the
+    benefits attached to its phase). ``key`` is ``coverage_key`` / ``benefit_key``,
+    the same ``cov:<phase>`` / ``ben:<code>:<phase>`` keys RERUN's UL rider buttons use.
+    """
+
+    key: str
+    when: date
+
+
+def coverage_key(coverage: ParWLCoverage) -> str:
+    return f"cov:{coverage.phase}"
+
+
+def benefit_key(benefit: ParWLBenefit) -> str:
+    return f"ben:{benefit.code}:{benefit.phase}"
+
+
+def coverage_label(coverage: ParWLCoverage) -> str:
+    return coverage.form_number or coverage.plancode or f"Coverage {coverage.phase}"
+
+
+def benefit_label(benefit: ParWLBenefit) -> str:
+    return benefit.form_number or benefit.code or f"Benefit {benefit.phase}"
+
+
+def droppable_riders(policy: ParWLPolicy) -> Dict[str, str]:
+    """``{key: description}`` of what an illustration can drop: term riders and benefits.
+
+    The base coverage and the paid-up additions rider (its payments are their own
+    input) are not droppable.
+    """
+    out: Dict[str, str] = {}
+    for cov in policy.coverages:
+        if cov.role == ROLE_TERM_RIDER:
+            out[coverage_key(cov)] = f"{cov.description or 'Term rider'} ({cov.plancode})"
+    for ben in policy.benefits:
+        out[benefit_key(ben)] = f"{ben.description or 'Benefit'} ({ben.code})"
+    return out
+
+
+def _earlier(current: Optional[date], when: date) -> date:
+    return when if current is None else min(current, when)
+
+
+def with_riders_dropped(policy: ParWLPolicy, drops: List[RiderDrop]) -> ParWLPolicy:
+    """``policy`` as illustrated after ``drops``: a dropped term rider pays up and matures on
+    its drop date (no premium, no face from then), and a dropped benefit - or any benefit on a
+    dropped rider's phase - ceases then. Keys that are not droppable are ignored here (the
+    engine refuses them)."""
+    if not drops:
+        return policy
+    dropped: Dict[str, date] = {}
+    for drop in drops:
+        dropped[drop.key] = min(dropped.get(drop.key, drop.when), drop.when)
+    phase_dropped: Dict[int, date] = {}
+    coverages = []
+    for cov in policy.coverages:
+        when = dropped.get(coverage_key(cov))
+        if when is not None and cov.role == ROLE_TERM_RIDER:
+            cov = replace(cov, pay_up_date=_earlier(cov.pay_up_date, when),
+                          maturity_date=_earlier(cov.maturity_date, when))
+            phase_dropped[cov.phase] = when
+        coverages.append(cov)
+    benefits = []
+    for ben in policy.benefits:
+        for when in (dropped.get(benefit_key(ben)), phase_dropped.get(ben.phase)):
+            if when is not None:
+                ben = replace(ben, cease_date=_earlier(ben.cease_date, when))
+        benefits.append(ben)
+    return replace(policy, coverages=tuple(coverages), benefits=tuple(benefits))
+
+
 @dataclass
 class ParWLInputs:
     """Illustration choices for a par WL run (all optional; defaults project the record)."""
@@ -285,6 +361,7 @@ class ParWLInputs:
     loans: List[DatedAmount] = field(default_factory=list)            # new loans
     loan_repayments: List[DatedAmount] = field(default_factory=list)
     rider_payments: List[DatedAmount] = field(default_factory=list)   # PUA rider premiums
+    rider_drops: List[RiderDrop] = field(default_factory=list)        # term riders / benefits dropped
     pay_loan_interest: bool = False               # pay loan interest in cash instead of capitalizing
     deposit_rate: Optional[float] = None          # dividend deposit interest (default: the record's rate)
     end_age: Optional[int] = None                 # stop at this attained age (default maturity)

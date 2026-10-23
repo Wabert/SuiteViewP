@@ -123,7 +123,7 @@ def test_surrender_tips_show_the_working():
     assert value.splitlines()[1:] == [
         "  Account Value: -7,740.27",
         "- Surrender Charge: 13,774.81",
-        "- Policy Debt: 0.00",
+        "- Policy Debt (loans + accrued interest at the MV): 0.00",
         "= -21,515.08",
     ]
 

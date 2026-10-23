@@ -80,10 +80,6 @@ class SystemTray(TaskbarCollaborator):
                 control.setVisible(allowed and not (
                     self.state.is_floating_mode and name in floating_only_hidden
                 ))
-        aai_btn = getattr(self.chrome, "aai_btn", None)
-        if aai_btn is not None:
-            # Not an app grant: the AAI button is hard-wired to its owner (and source runs).
-            aai_btn.set_allowed(access is not None and access.shows_aai_button)
         for code, action in self.chrome._permission_actions:
             allowed = access is not None and access.allows_app(code)
             action.setEnabled(allowed)

@@ -21,7 +21,7 @@ class LoansSection(PolicySection):
     CACHE_ATTRS = ('_loans',)
 
     def get_loans(self) -> List[LoanInfo]:
-        """Get all active loans."""
+        """Current loans (MVRY_DT 12/31/9999 rows) from the active loan table."""
         if self._loans is not None:
             return self._loans
 
@@ -66,15 +66,27 @@ class LoansSection(PolicySection):
             raw_data=row,
         )
 
+    def get_fund_loan_history(self) -> List[LoanInfo]:
+        """Every LH_FND_VAL_LOAN row with principal: the current (12/31/9999) row plus
+        the monthliversary snapshots, each dated by its ``raw_data["MVRY_DT"]``.
+
+        Not a debt total; ``get_loans`` holds only the current loans.
+        """
+        return [
+            self._loan_from_row(row, advanced=True)
+            for row in self.fetch_table("LH_FND_VAL_LOAN")
+            if Decimal(str(row.get("LN_PRI_AMT", 0) or 0)) > 0
+        ]
+
     def _active_loan_rows(self, table_name: str) -> List[Dict[str, Any]]:
         rows = []
         for row in self.fetch_table(table_name):
             principal = Decimal(str(row.get("LN_PRI_AMT", 0) or 0))
             if principal <= 0:
                 continue
-            # Traditional loan rows dated at an anniversary are history snapshots;
+            # Loan rows dated at a monthliversary/anniversary are history snapshots;
             # only the MVRY_DT 12/31/9999 row is the current loan.
-            if table_name == "LH_CSH_VAL_LOAN" and "9999" not in str(row.get("MVRY_DT", "9999")):
+            if "9999" not in str(row.get("MVRY_DT", "9999")):
                 continue
             rows.append(row)
         return rows

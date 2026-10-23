@@ -151,6 +151,21 @@ title bar. Every top-level window subclasses `FramelessWindowBase`
 - 8-edge resize handles. Snap-to-edge (left/right half-screen) with translucent
   preview.
 - De-maximize on drag — dragging from maximized restores to normal size.
+- **On Windows the header drag is native too**: a header press that moves past
+  `QApplication.startDragDistance()` catches the window up to the cursor and hands
+  off to `QWindow.startSystemMove()`, so Windows/DWM moves it (smooth at 125–150%
+  laptop scaling, native Aero Snap). Starting the system move on the press itself
+  would swallow the header double-click. The Python `move()` drag + snap preview is
+  the non-Windows fallback.
+- **`min_size` alone bounds the window.** `FramelessWindowBase.hasHeightForWidth()`
+  returns `False`: otherwise content with height-for-width (word-wrapped labels)
+  makes Qt force the window back up to the content's height on every resize — on
+  a laptop work area a top/side drag grew RERUN past the screen (10/23/2026).
+- A first-shown normal window larger than its screen's work area is fitted inside
+  it (`_fit_to_screen`).
+- **Regression check:**
+  `venv\Scripts\python.exe tools/app/verify_frameless_drag_resize.py` (drives the
+  real mouse for a few seconds) must report `all_ok: true`.
 
 ### Resizing — Native (DWM), NOT manual `setGeometry` (MANDATORY)
 **On Windows, resizing is handed to the OS via native hit-testing — never a

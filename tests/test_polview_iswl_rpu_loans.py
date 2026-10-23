@@ -28,7 +28,7 @@ _CASH_VALUE_LOANS = [
 class _Policy:
     """Minimal PolicyInformation stand-in wired to the real loan section and records."""
 
-    def __init__(self, rules, premium_pay_status_code):
+    def __init__(self, rules, premium_pay_status_code, fund_rows=None):
         self.product = SimpleNamespace(
             product_rules=rules,
             is_advanced_product=rules.is_advanced,
@@ -37,10 +37,11 @@ class _Policy:
         self.status = SimpleNamespace(premium_pay_status_code=premium_pay_status_code)
         self.loans = LoansSection(self)
         self.loan_records = LoanRecords(self)
+        self._fund_rows = _FUND_HISTORY if fund_rows is None else fund_rows
 
     def fetch_table(self, table):
         return {
-            "LH_FND_VAL_LOAN": _FUND_HISTORY,
+            "LH_FND_VAL_LOAN": self._fund_rows,
             "LH_CSH_VAL_LOAN": _CASH_VALUE_LOANS,
         }.get(table, [])
 
@@ -73,6 +74,35 @@ def test_iswl_premium_paying_still_uses_fund_loans():
 
     assert policy.loans.uses_fund_loans is True
     assert policy.loans.loan_table == "LH_FND_VAL_LOAN"
+
+
+def _fund_row(mv_date, principal, interest, interest_type):
+    return {"MVRY_DT": mv_date, "PRF_LN_IND": "0", "FND_ID_CD": "U1", "LN_PRI_AMT": Decimal(principal),
+            "POL_LN_ITS_AMT": Decimal(interest), "LN_CRG_ITS_RT": Decimal("6"),
+            "LN_ITS_AMT_TYP_CD": interest_type}
+
+
+# U0566833 (CKAS): the current loan plus its 9/28 and 8/28 monthliversary snapshots.
+_UL_FUND_LOANS = [
+    _fund_row("9999-12-31", "1928.01", "0.00", "1"),
+    _fund_row("9999-12-31", "34228.99", "0.00", "1"),
+    _fund_row("2026-09-28", "1928.01", "0.00", "1"),
+    _fund_row("2026-09-28", "34228.99", "0.00", "1"),
+    _fund_row("2026-08-28", "809.79", "44.88", "2"),
+    _fund_row("2026-08-28", "33419.20", "1883.13", "2"),
+]
+
+
+def test_fund_loan_totals_ignore_monthliversary_history_rows():
+    policy = _Policy(AdvancedRules(), "22", fund_rows=_UL_FUND_LOANS)
+
+    assert [loan.principal for loan in policy.loans.get_loans()] == [
+        Decimal("1928.01"), Decimal("34228.99")]
+    assert policy.loans.total_loan_principal == Decimal("36157.00")
+    assert policy.loans.total_loan_interest == Decimal("0")
+    assert policy.loans.total_loan_balance == Decimal("36157.00")
+    assert policy.loans.total_loan_balance == policy.loan_records.policy_debt
+    assert len(policy.loans.get_fund_loan_history()) == len(_UL_FUND_LOANS)
 
 
 def test_loans_tab_shows_iswl_rpu_debt(qtbot):

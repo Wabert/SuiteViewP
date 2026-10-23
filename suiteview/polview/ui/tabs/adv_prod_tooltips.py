@@ -60,7 +60,8 @@ def surrender_value_tip(surrender) -> str:
         f"Surrender Value{_as_of(surrender.as_of)}",
         f"  Account Value: {format_currency(surrender.account_value)}",
         f"- Surrender Charge: {format_currency(surrender.surrender_charge)}",
-        f"- Policy Debt: {format_currency(surrender.policy_debt)}",
+        f"- Policy Debt (loans + accrued interest at the MV): "
+        f"{format_currency(surrender.policy_debt)}",
         f"= {format_currency(surrender.surrender_value)}",
     ])
 

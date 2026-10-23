@@ -249,11 +249,16 @@ def _surrender_values(basis, config, rates, state) -> SurrenderValues:
     )
     original = bool(getattr(
         config, "surrender_charge_on_original_units", config.sa_basis == SA_BASIS_ORIGINAL))
+    # The engine's inforce surrender value (RERUN's lapse test) nets the debt after
+    # accruing the month's arrears loan interest. The tab values the policy as of
+    # the monthliversary, so it swaps in the stored MV-date debt; the engine's
+    # floored AV less charge is kept.
+    mv_debt = float(basis.total_loan_balance)
     return SurrenderValues(
         surrender_charge=state.surrender_charge,
-        surrender_value=state.surrender_value,
+        surrender_value=state.surrender_value + state.policy_debt - mv_debt,
         account_value=float(basis.account_value),
-        policy_debt=state.policy_debt,
+        policy_debt=mv_debt,
         as_of=basis.valuation_date,
         original_units_basis=original and not ffl_current_units_fallback(basis),
         coverages=coverages,
@@ -425,7 +430,6 @@ class PolicyLoadSession:
         # A swallowed failure in a collection builder may have left partial data.
         policy._sections.pop("coverages", None)
         policy._sections.pop("benefits", None)
-        policy.loan_records.invalidate()
         if stage == "advprod" and not policy.product.is_advanced_product:
             payload = self._traditional_cash_values()
             policy._data.raise_table_errors()

@@ -10,7 +10,6 @@ pages in landscape through the shared ``report_pages`` printer, sized so the
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import Path
 from typing import List, Optional
 
 from PyQt6.QtCore import Qt, QUrl
@@ -22,7 +21,6 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -41,11 +39,9 @@ from suiteview.illustration.core.report_builder import (
     LedgerRow,
 )
 from .report_pages import (
-    OUTPUT_FOLDER_EDIT_STYLE,
-    OUTPUT_FOLDER_KEY,
     PRINT_BUTTON_STYLE,
-    REPORT_BUTTON_STYLE,
     REPORT_LABEL_STYLE,
+    OutputFolderRow,
     default_pdf_name,
     pages_document,
     pdf_printer,
@@ -54,9 +50,10 @@ from .report_pages import (
 )
 from .styles import PURPLE_BG, apply_input_checkbox_style
 
-# Persisted illustration UI settings (output folder for printed PDFs and the
-# Add Expense Report toggle). Resolve the profile at call time; tests and
-# isolated profiles can change the profile root after this module imports.
+# Persisted illustration UI settings (the Add Expense Report toggle; the PDF
+# output folder lives in report_pages.OutputFolderSetting). Resolve the profile
+# at call time; tests and isolated profiles can change the profile root after
+# this module imports.
 def _settings_file():
     return report_settings_file()
 
@@ -916,29 +913,9 @@ class IllustrationReportTab(QWidget):
         top_row.addWidget(self.print_pdf_btn)
         layout.addLayout(top_row)
 
-        # ── Output folder row (persisted across sessions) ──
-        folder_row = QHBoxLayout()
-        folder_row.setSpacing(6)
-        folder_label = QLabel("Output folder:")
-        folder_label.setStyleSheet(REPORT_LABEL_STYLE)
-        folder_row.addWidget(folder_label)
-        self.output_folder_edit = QLineEdit()
-        self.output_folder_edit.setPlaceholderText("Prompt for a folder each time (not set)")
-        self.output_folder_edit.setToolTip(
-            "Folder where illustration PDFs are saved. Saved across sessions.")
-        self.output_folder_edit.setStyleSheet(OUTPUT_FOLDER_EDIT_STYLE)
-        self.output_folder_edit.editingFinished.connect(self._on_output_folder_edited)
-        folder_row.addWidget(self.output_folder_edit, 1)
-        self.browse_folder_btn = QPushButton("Browse…")
-        self.browse_folder_btn.setToolTip("Choose the folder illustration PDFs are saved to.")
-        self.browse_folder_btn.setStyleSheet(REPORT_BUTTON_STYLE)
-        self.browse_folder_btn.clicked.connect(self._on_browse_output_folder)
-        folder_row.addWidget(self.browse_folder_btn)
-        layout.addLayout(folder_row)
-
-        self._output_folder = self._load_output_folder()
-        if self._output_folder:
-            self.output_folder_edit.setText(self._output_folder)
+        # ── Output folder row (profile setting shared by every report page) ──
+        self.output_folder_row = OutputFolderRow(self)
+        layout.addWidget(self.output_folder_row)
 
         # Report warning banner — shown when the guaranteed-basis projection
         # raised, so the report's blank GUARANTEED VALUES columns are never
@@ -1089,38 +1066,6 @@ class IllustrationReportTab(QWidget):
 
     # ── Print to PDF ────────────────────────────────────────────────────
 
-    @staticmethod
-    def _load_output_folder() -> str:
-        settings = read_json(_settings_file(), default={}) or {}
-        folder = settings.get(OUTPUT_FOLDER_KEY, "")
-        return folder if isinstance(folder, str) else ""
-
-    def _save_output_folder(self, folder: str) -> None:
-        settings = read_json(_settings_file(), default={}) or {}
-        settings[OUTPUT_FOLDER_KEY] = folder
-        try:
-            write_json(_settings_file(), settings)
-        except OSError as exc:
-            QMessageBox.warning(
-                self, "Output folder",
-                f"Could not save the output folder setting: {exc}")
-
-    def _set_output_folder(self, folder: str) -> None:
-        self._output_folder = folder
-        if self.output_folder_edit.text() != folder:
-            self.output_folder_edit.setText(folder)
-        self._save_output_folder(folder)
-
-    def _on_output_folder_edited(self) -> None:
-        self._set_output_folder(self.output_folder_edit.text().strip())
-
-    def _on_browse_output_folder(self) -> None:
-        start_dir = self._output_folder if self._output_folder and Path(self._output_folder).is_dir() else ""
-        folder = QFileDialog.getExistingDirectory(
-            self, "Choose output folder", start_dir)
-        if folder:
-            self._set_output_folder(folder)
-
     def _default_pdf_name(self) -> str:
         """policynumber - plancode - yyyy-mm-dd hh-mm (filesystem-safe)."""
         report = self._report
@@ -1136,19 +1081,11 @@ class IllustrationReportTab(QWidget):
             QMessageBox.warning(self, "Print to PDF", blocked)
             self.status_label.setText("Print to PDF refused: the guaranteed projection failed.")
             return
-        default_name = self._default_pdf_name()
-        if self._output_folder and Path(self._output_folder).is_dir():
-            start_path = str(Path(self._output_folder) / default_name)
-        else:
-            start_path = default_name
+        start_path = self.output_folder_row.pdf_start_path(self._default_pdf_name())
         path, _ = QFileDialog.getSaveFileName(
             self, "Print to PDF", start_path, "PDF Files (*.pdf)")
         if not path:
             return
-        # Remember the folder the user actually saved to.
-        chosen_dir = str(Path(path).resolve().parent)
-        if chosen_dir != self._output_folder:
-            self._set_output_folder(chosen_dir)
         try:
             self.write_pdf(
                 self._report, path,

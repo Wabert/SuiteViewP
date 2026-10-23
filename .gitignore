@@ -107,3 +107,8 @@ docs/Illustration_UL/Testing/details/
 docs/Illustration_UL/Archive/
 docs/Illustration_WL/
 docs/polview/Annuity_Rider_Forward_Verification*.xlsx
+# --- ABR case letters, emails and filed forms live in ..\ABR_Process (2026-10) ---
+docs/ABRQuote/*.docx
+docs/ABRQuote/*.eml
+docs/ABRQuote/ICC*.pdf
+docs/ABRQuote/[[]Fillable*

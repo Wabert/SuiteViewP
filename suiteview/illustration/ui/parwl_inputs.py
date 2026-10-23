@@ -30,20 +30,32 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from suiteview.illustration.core.input_context import PolicyContext
+from suiteview.illustration.core.parwl.engine import completed_months
 from suiteview.illustration.models.parwl import (
     BILL_FORM_LABELS,
     DIVIDEND_OPTION_LABELS,
     PAC_REDUCE_PREMIUM_MESSAGE,
+    ROLE_BASE,
+    ROLE_PUA_RIDER,
     SECONDARY_OPTION_LABELS,
     DatedAmount,
     OptionChange,
+    ParWLBenefit,
+    ParWLCoverage,
     ParWLInputs,
     ParWLPolicy,
+    RiderDrop,
+    benefit_key,
+    benefit_label,
+    coverage_key,
+    coverage_label,
     reduce_premium_on_pac,
 )
 
+from .inputs_dynamic import RiderAdjustment, RiderButtonsPanel
 from .inputs_tab import ExcelTableWidget, NavigationDelegate
-from .policy_snapshot_widgets import MODE_CHOICES, MODE_NAMES
+from .policy_snapshot_widgets import MODE_CHOICES, MODE_NAMES, money, short_date
 from .policy_tab import RATE_WARNING_STYLE
 from .styles import (
     GROUP_STYLE,
@@ -69,8 +81,81 @@ def _add_months(start: date, months: int, day: int) -> date:
     return date(year, month, min(day, calendar.monthrange(year, month)[1]))
 
 
+def coverage_detail_rows(coverage: ParWLCoverage) -> List[tuple]:
+    """The detail card rows for a par WL rider coverage."""
+    return [
+        ("Phase:", coverage.phase),
+        ("Form:", coverage.form_number),
+        ("Plancode:", coverage.plancode),
+        ("Description:", coverage.description),
+        ("Issue Date:", short_date(coverage.issue_date)),
+        ("Pay Up Date:", short_date(coverage.pay_up_date)),
+        ("Maturity Date:", short_date(coverage.maturity_date)),
+        ("Amount:", money(coverage.face_amount)),
+        ("Issue Age:", coverage.issue_age),
+        ("Class:", coverage.rate_class),
+        ("Annual Premium:", money(coverage.annual_premium)),
+    ]
+
+
+def benefit_detail_rows(benefit: ParWLBenefit) -> List[tuple]:
+    """The Benefit Detail card rows for a par WL supplemental benefit."""
+    return [
+        ("Code:", benefit.code),
+        ("Phase:", benefit.phase),
+        ("Description:", benefit.description),
+        ("Form:", benefit.form_number),
+        ("Issue Date:", short_date(benefit.issue_date)),
+        ("Pay Up Date:", short_date(benefit.pay_up_date)),
+        ("Cease Date:", short_date(benefit.cease_date)),
+        ("Units:", f"{benefit.units:,.3f}"),
+        ("VPU:", f"{benefit.value_per_unit:,.2f}"),
+        ("Amount:", money(benefit.units * benefit.value_per_unit)),
+        ("Issue Age:", benefit.issue_age if benefit.issue_age is not None else ""),
+        ("Rating:", f"{benefit.rate_factor:.0%}" if benefit.rate_factor != 1.0 else ""),
+        ("Annual Rate:", f"{benefit.annual_premium_per_unit:,.2f}"),
+        ("Annual Premium:", money(benefit.annual_premium)),
+    ]
+
+
+def rider_items(policy: ParWLPolicy) -> List[tuple]:
+    """``RiderButtonsPanel`` items for the policy's riders and benefits.
+
+    Term riders and benefits can be kept or dropped; the paid-up additions rider is
+    shown view-only (its payments are the Paid-Up Additions Rider Payments input).
+    """
+    as_of = policy.valuation_date
+    items = []
+    for cov in policy.coverages:
+        if cov.role == ROLE_BASE:
+            continue
+        rows = coverage_detail_rows(cov)
+        adjustable = cov.role != ROLE_PUA_RIDER
+        if not adjustable:
+            rows.append(("Note:", "Enter its payments under Paid-Up Additions Rider Payments."))
+        matured = cov.maturity_date is not None and cov.maturity_date <= as_of
+        items.append((coverage_key(cov), coverage_label(cov), rows, adjustable, cov.face_amount, matured))
+    for ben in policy.benefits:
+        matured = ben.cease_date is not None and ben.cease_date <= as_of
+        items.append((benefit_key(ben), benefit_label(ben), benefit_detail_rows(ben),
+                      not ben.code.startswith("#"), round(ben.units * ben.value_per_unit, 2), matured))
+    return items
+
+
+def rider_context(policy: ParWLPolicy) -> PolicyContext:
+    """The rider dialog's year/age/date context: the projection starts at the valuation date."""
+    base = policy.base
+    year = completed_months(policy.issue_date, policy.valuation_date) // 12 + 1
+    maturity_age = (base.issue_age + completed_months(base.issue_date, base.maturity_date) // 12
+                    if base.maturity_date else 121)
+    return PolicyContext(
+        issue_date=policy.issue_date, issue_age=base.issue_age, forecast_year=year,
+        forecast_age=base.issue_age + year - 1, maturity_age=maturity_age,
+        valuation_date=policy.valuation_date, forecast_date=policy.valuation_date)
+
+
 class ParWLInputsTab(QWidget):
-    """Par WL illustration inputs: dividends, premium mode, reduced paid-up, loans, PUA rider payments."""
+    """Par WL illustration inputs: dividends, premium mode, reduced paid-up, loans, riders, PUA rider payments."""
 
     inputs_changed = pyqtSignal()
 
@@ -79,6 +164,7 @@ class ParWLInputsTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._policy: Optional[ParWLPolicy] = None
+        self._rider_ctx = PolicyContext()
         self._build()
 
     # -- construction ---------------------------------------------------------------
@@ -105,6 +191,7 @@ class ParWLInputsTab(QWidget):
         right = QVBoxLayout()
         right.setSpacing(10)
         right.addWidget(self._build_loan_group())
+        right.addWidget(self._build_riders_panel())
         right.addWidget(self._build_rider_group())
         right.addStretch(1)
         columns.addLayout(left, 1)
@@ -283,6 +370,12 @@ class ParWLInputsTab(QWidget):
         layout.addLayout(row)
         return group
 
+    def _build_riders_panel(self) -> RiderButtonsPanel:
+        """RERUN's UL Riders & Benefits buttons, Keep / Drop only (par WL has no amount change)."""
+        self.riders_panel = RiderButtonsPanel(self, allow_change=False)
+        self.riders_panel.changed.connect(self.inputs_changed.emit)
+        return self.riders_panel
+
     def _build_rider_group(self) -> QGroupBox:
         self.rider_group = self._group("Paid-Up Additions Rider Payments")
         layout = QVBoxLayout(self.rider_group)
@@ -341,6 +434,8 @@ class ParWLInputsTab(QWidget):
         else:
             self.rider_note.setText(f"Payments buy paid-up additions on {rider.plancode} at its PUI rates.")
         self.end_age.setValue(0)
+        self._rider_ctx = rider_context(policy)
+        self.riders_panel.set_items(rider_items(policy), self._rider_ctx)
         self._refresh_pac_warning()
 
     def _load_mode(self, policy: ParWLPolicy) -> None:
@@ -446,6 +541,12 @@ class ParWLInputsTab(QWidget):
             changes.append(OptionChange(self._when(texts[0], what), option, secondary))
         return changes
 
+    def _rider_drops(self) -> List[RiderDrop]:
+        """The riders / benefits the Riders & Benefits buttons drop, at their effective dates."""
+        return [RiderDrop(event.metadata["target"], event.effective_date)
+                for event in self.riders_panel.collect_changes(self._rider_ctx)
+                if event.metadata.get("action") == RiderAdjustment.DROP]
+
     def read_inputs(self) -> ParWLInputs:
         """The screen as ``ParWLInputs``; raises ``ParWLInputError`` naming a bad row."""
         if self._policy is None:
@@ -473,6 +574,7 @@ class ParWLInputsTab(QWidget):
             loans=self._dated_amounts(self.loan_table, "New loans"),
             loan_repayments=self._dated_amounts(self.repay_table, "Loan repayments"),
             rider_payments=self._dated_amounts(self.rider_table, "PUA rider payments"),
+            rider_drops=self._rider_drops(),
             pay_loan_interest=self.pay_interest.isChecked(),
             deposit_rate=deposit_rate,
             end_age=self.end_age.value() or None,

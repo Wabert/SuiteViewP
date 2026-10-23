@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date
-from typing import List, Optional
+from typing import Optional
 
 import pandas as pd
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -31,13 +31,12 @@ from suiteview.illustration.models.parwl import (
     ROLE_BASE,
     ROLE_PUA_RIDER,
     ROLE_TERM_RIDER,
-    ParWLBenefit,
     ParWLResult,
 )
 from suiteview.polview.ui.widgets import StyledInfoTableGroup
 
 from .illustration_pages_view import IllustrationPagesView, InforceChecksView, ReportPages
-from .parwl_inputs import ParWLInputError, ParWLInputsTab
+from .parwl_inputs import ParWLInputError, ParWLInputsTab, benefit_detail_rows
 from .parwl_values import ParWLValuesTab
 from .policy_snapshot_widgets import BenefitButtonsGroup, CoverageTableGroup, money, short_date
 from .policy_tab import RATE_WARNING_STYLE
@@ -82,26 +81,6 @@ def parwl_report_pages(result: ParWLResult, run_date: date) -> ReportPages:
 COVERAGE_COLUMNS = ["Phs", "Form", "Plancode", "Type", "IssueDate", "PayUpDate", "Mat Date", "Amount", "Units",
                     "IssAge", "Gender", "Class", "Tbl", "Prem/Unit", "Ann Prem", "Div Key", "NSP Basis"]
 ROLE_LABELS = {ROLE_BASE: "Base", ROLE_PUA_RIDER: "PUA Rider", ROLE_TERM_RIDER: "Term Rider"}
-
-
-def benefit_detail_rows(benefit: ParWLBenefit) -> List[tuple]:
-    """The Benefit Detail card rows for a par WL supplemental benefit."""
-    return [
-        ("Code:", benefit.code),
-        ("Phase:", benefit.phase),
-        ("Description:", benefit.description),
-        ("Form:", benefit.form_number),
-        ("Issue Date:", short_date(benefit.issue_date)),
-        ("Pay Up Date:", short_date(benefit.pay_up_date)),
-        ("Cease Date:", short_date(benefit.cease_date)),
-        ("Units:", f"{benefit.units:,.3f}"),
-        ("VPU:", f"{benefit.value_per_unit:,.2f}"),
-        ("Amount:", money(benefit.units * benefit.value_per_unit)),
-        ("Issue Age:", benefit.issue_age if benefit.issue_age is not None else ""),
-        ("Rating:", f"{benefit.rate_factor:.0%}" if benefit.rate_factor != 1.0 else ""),
-        ("Annual Rate:", f"{benefit.annual_premium_per_unit:,.2f}"),
-        ("Annual Premium:", money(benefit.annual_premium)),
-    ]
 
 
 class ParWLPolicyView(QWidget):

@@ -15,7 +15,8 @@ Usage:
 ``--inputs`` is JSON (or ``@file``) with any ParWLInputs field: ``dividends``,
 ``dividend_option``, ``secondary_option``, ``option_changes`` ([{"when", "option",
 "secondary"}]), ``billing_frequency`` (12, 6, 3 or 1), ``bill_form`` ("0" direct, "G" PAC), ``rpu_at``,
-``loans`` / ``loan_repayments`` / ``rider_payments`` ([{"when", "amount"}]), ``pay_loan_interest``,
+``loans`` / ``loan_repayments`` / ``rider_payments`` ([{"when", "amount"}]), ``rider_drops``
+([{"key": "cov:<phase>" or "ben:<code>:<phase>", "when"}]), ``pay_loan_interest``,
 ``deposit_rate``, ``end_age``.
 Dates are ISO (YYYY-MM-DD).
 """
@@ -33,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from suiteview.illustration.core.ledger_report import format_ledger_pages  # noqa: E402
 from suiteview.illustration.core.parwl.report import build_parwl_report  # noqa: E402
 from suiteview.illustration.core.parwl.service import load_parwl_basis  # noqa: E402
-from suiteview.illustration.models.parwl import DatedAmount, OptionChange, ParWLInputs  # noqa: E402
+from suiteview.illustration.models.parwl import DatedAmount, OptionChange, ParWLInputs, RiderDrop  # noqa: E402
 from suiteview.polview.models.policy_information import PolicyInformation  # noqa: E402
 
 
@@ -49,6 +50,8 @@ def _inputs(text: str) -> ParWLInputs:
     if "option_changes" in kwargs:
         kwargs["option_changes"] = [OptionChange(day(c["when"]), c["option"], c.get("secondary", ""))
                                     for c in kwargs["option_changes"]]
+    if "rider_drops" in kwargs:
+        kwargs["rider_drops"] = [RiderDrop(d["key"], day(d["when"])) for d in kwargs["rider_drops"]]
     if kwargs.get("rpu_at"):
         kwargs["rpu_at"] = day(kwargs["rpu_at"])
     return ParWLInputs(**kwargs)

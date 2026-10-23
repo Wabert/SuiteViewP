@@ -275,6 +275,48 @@ def test_choose_cell_single_sex_fallback_skips_sub_series_keyed_rows():
     assert chosen is None and "loaded MN" in notes[0]
 
 
+def _nb1sl200_divs():
+    # RATE_ASSIGN_DIV for NB1SL200 after 10/23/2026: the dbo map row (M/K -> 1SL2FK) and the sub-series keyed rows,
+    # whose sex/class are the sub-series' own.
+    return [DivAssignment("M", "K", "0", "**", "", "1SL2FK", ""),
+            DivAssignment("F", "K", "0", "**", "", "1SL2FK", "", "FK"),
+            DivAssignment("F", "L", "0", "**", "", "1SL2FL", "", "FL"),
+            DivAssignment("M", "H", "0", "**", "", "1SL2MH", "", "MH"),
+            DivAssignment("M", "L", "0", "**", "", "1SL2ML", "", "ML")]
+
+
+def test_choose_div_sub_series_keyed_rows_win_with_sex_and_class_ignored():
+    divs = _nb1sl200_divs()
+    # Rate sex M for every in-force coverage; the dividend key follows the insured's sex (the sub-series).
+    for cls, sub, key in (("L", "FL", "1SL2FL"), ("L", "ML", "1SL2ML"), ("H", "MH", "1SL2MH"), ("K", "FK", "1SL2FK")):
+        chosen, notes = sr.choose_div(divs, sr.RateKey("M", cls, "2", "TX", sub), "")
+        assert (chosen.div_key, chosen.subseries) == (key, sub)
+        assert notes == [f"sub-series {sub}", "band 0"]
+
+
+def test_choose_div_without_a_keyed_row_reads_only_blank_sub_series_rows():
+    divs = _nb1sl200_divs()
+    # No sub-series, or one with no keyed row: the sex/class lookup exactly as before 10/23/2026.
+    for sub in ("", "ZZ", "MK"):
+        chosen, notes = sr.choose_div(divs, sr.RateKey("M", "K", "0", "TX", sub), "")
+        assert (chosen.div_key, chosen.subseries, notes) == ("1SL2FK", "", [])
+        # M/L has only a keyed row (ML): it is not used without the coverage's sub-series.
+        chosen, notes = sr.choose_div(divs, sr.RateKey("M", "L", "0", "TX", sub), "")
+        assert chosen is None and notes == ["no dividend key for M/L/0"]
+    # A plan with no keyed rows is unaffected by the coverage's sub-series.
+    plain = [DivAssignment("M", "N", "0", "**", "", "11E1MN", "")]
+    assert sr.choose_div(plain, sr.RateKey("M", "N", "0", "TX", "MN"), "")[0] == plain[0]
+
+
+def test_choose_div_keyed_rows_keep_band_state_and_rein_rules():
+    divs = [DivAssignment("F", "L", "0", "**", "", "1SL2FL", "", "FL"),
+            DivAssignment("F", "L", "1", "**", "", "1SL2FL", "   A   ", "FL"),
+            DivAssignment("F", "L", "0", "NY", "", "1SL2FL", "     B ", "FL")]
+    assert sr.choose_div(divs, sr.RateKey("M", "L", "1", "TX", "FL"), "")[0].user_key == "   A   "
+    chosen, notes = sr.choose_div(divs, sr.RateKey("M", "L", "0", "NY", "FL"), "RGA")
+    assert chosen.user_key == "     B " and notes == ["sub-series FL", "REIN '' (policy RGA)"]
+
+
 @pytest.mark.parametrize("grain,values,year,point,expected", [
     ("IA_DUR", {(40, 3): 1}, 3, False, 1),
     ("IA_DUR", {(40, 2): 1}, 3, True, 1),

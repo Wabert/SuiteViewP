@@ -151,7 +151,6 @@ class PolicyInformation:
         # Every section cache built against older rows must be rebuilt; the
         # sections rebuild lazily from the merged table cache.
         self._sections.clear()
-        self.loan_records.invalidate()
         self.total_records.invalidate()
         self._band_cache.clear()
 
@@ -286,7 +285,6 @@ class PolicyInformation:
     def refresh(self):
         self._sections.clear()
         self._band_cache.clear()
-        self.loan_records.invalidate()
         self.total_records.invalidate()
         self._data.refresh()
 

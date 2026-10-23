@@ -170,9 +170,9 @@ company through canonical lookup. It derives:
   interest, retirement of current debt, Option B→A, and existing $1,000 maturity
   surrender/shadow rules.
 - Debt from that canonical funding run's `loan_retired`, using the Illustration
-  policy's current LoanRecords buckets. **Do not use the generic policy
-  `total_loan_balance` aggregate without checking dates**: its `get_loans()` path
-  can sum historical fund-loan snapshots as well as current rows.
+  policy's current LoanRecords buckets. `PolicyInformation.loans.total_loan_balance`
+  agrees: `get_loans()` counts only the current (12/31/9999) loan rows; dated
+  fund-loan snapshots are read separately through `get_fund_loan_history()`.
 
 The command writes `request.json`, `output.json`, `live-inputs-resolved.json`,
 `funding.json` (full diagnostic projection/rate cache), and `manifest.json`.

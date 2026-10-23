@@ -1873,8 +1873,9 @@ into it. Month-year numbers count months from January 1900. Coverages add
 `traditional_facts` (pay-up date, dividend key = class + base series + sub-series,
 NSP basis, stored `LOW_DUR_*` values, cease reason), substandard ratings add the
 annual extra premium per unit (`SST_XTR_UNT_AMT`), trad loans add the advance /
-arrears code and interest paid-to date, and `LoansSection.get_loans` now counts only
-the current `LH_CSH_VAL_LOAN` row (anniversary rows are history).
+arrears code and interest paid-to date, and `LoansSection.get_loans` counts only
+the current (12/31/9999) row of either loan table (dated rows are history; the ISWL
+RPU loader reads dated fund-loan snapshots through `get_fund_loan_history`).
 
 **Rates** come from UL_Rates schema `rates` only: `CV` (scale G, sub-series cells),
 `PREM` (cross-check), the dividend structure (`D`/`R` records, or `L`/`P` when the
@@ -1941,7 +1942,15 @@ option changes; deposit interest; premium mode (As billed, Annual, Semi-annual,
 Quarterly, Monthly) and billing (As billed, Direct bill `0`, PAC `G`), both greyed with a
 note when no premiums are due; convert to reduced
 paid-up at a policy year or date;
-new loans and repayments; pay loan interest in cash; PUA rider payments (bought at PUI
+new loans and repayments; pay loan interest in cash; **Riders & Benefits** - the UL
+Input tab's rider buttons (`RiderButtonsPanel`, Keep / Drop only: a par WL rider amount
+change is not illustrated) for each term rider and supplemental benefit; a dropped one
+(`ParWLInputs.rider_drops`, keys `cov:<phase>` / `ben:<code>:<phase>`) stops billing on
+its drop date (a policy year's anniversary, the valuation date for the current year, or
+a monthliversary date), a term rider's face leaves the death benefit then and the
+benefits on its phase go with it (`models.parwl.with_riders_dropped`); the report states
+each drop and "Other coverage" ends the rider on it. The PUA rider is shown view-only and
+the base has no button; PUA rider payments (bought at PUI
 rates; greyed when the rider has ceased); illustrate to age. A changed premium mode or
 billing starts with the first premium due on its schedule (a month of the policy year the new
 frequency divides) on or after the paid-to date; premiums due before then stay on the
@@ -1972,7 +1981,11 @@ When the run never reaches RPU, the page is greyed out with a note.
 **Report** (Robert Haessly, 9/29/2026: "a PDF in the same style as the UL reports,
 except landscape"): `core/parwl/report.py` builds the pages and `ui/parwl_workspace.py`
 (`ParWLReportView`) shows them as print-preview sheets with **Print to PDF** (Letter
-landscape, the shared output folder) and **Ledger to Excel**. The page style is the UL
+landscape, the shared output folder) and **Ledger to Excel**. The output folder is one
+profile setting (`illustration_settings.json`) shared by every report page through
+`report_pages.OutputFolderRow`: it changes only when the user types a folder or uses
+Browse… in that row; saving a PDF elsewhere in the Save dialog is a one-off and never
+rewrites it (10/23/2026). The page style is the UL
 report's (`ui/report_pages.py` is the shared printer, sheet and settings code; the
 text layout helpers are `core/report_text.py`): a header on every page (run date,
 company, page x of y, title, prepared-for), a cover with the disclaimer, the policy

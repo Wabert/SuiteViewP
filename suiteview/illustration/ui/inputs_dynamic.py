@@ -1227,14 +1227,17 @@ class RiderButtonsPanel(QGroupBox):
         "QPushButton:hover { background: #E6DAF8; }"
     )
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, allow_change: bool = True):
         super().__init__("Riders && Benefits", parent)
         self.setStyleSheet(INPUT_SECTION_GROUP_STYLE)
+        # False: Keep / Drop only (products whose engine has no rider amount change).
+        self._allow_change = allow_change
         self._ctx: Optional[PolicyContext] = None
         self._items: list[tuple] = []          # (key, label, detail_rows, adjustable, amount, matured)
         self._adjustments: dict[str, RiderAdjustment] = {}
         self._buttons: dict[str, QPushButton] = {}
         self._matured: set[str] = set()        # keys whose rider/benefit has already matured
+        self._view_only: set[str] = set()      # keys with no illustration adjustment
         self._layout = QHBoxLayout(self)
         self._layout.setContentsMargins(8, 16, 8, 8)
         self._layout.setSpacing(6)
@@ -1244,18 +1247,29 @@ class RiderButtonsPanel(QGroupBox):
         self._layout.addWidget(self._note)
         self._layout.addStretch(1)
 
-    def set_policy(self, policy, ctx: PolicyContext):
+    def set_items(self, items, ctx: PolicyContext):
+        """Show prebuilt items ``(key, label, detail rows, adjustable, amount, matured)``
+        for a product that reads its riders without a PolicyInformation (par WL)."""
+        self._reset(ctx)
+        self._items = list(items)
+        self._finish_item_buttons()
+
+    def _reset(self, ctx: PolicyContext):
         self._ctx = ctx
         self._items = []
         self._adjustments = {}
         self._matured = set()
-        as_of = ctx.valuation_date or ctx.forecast_date or date.today()
+        self._view_only = set()
         for index in reversed(range(self._layout.count())):
             item = self._layout.takeAt(index)
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()
         self._buttons = {}
+
+    def set_policy(self, policy, ctx: PolicyContext):
+        self._reset(ctx)
+        as_of = ctx.valuation_date or ctx.forecast_date or date.today()
 
         if not policy_hasattr(policy, "get_coverages"):
             # IllustrationPolicyData (a saved-case snapshot): riders/benefits
@@ -1367,12 +1381,15 @@ class RiderButtonsPanel(QGroupBox):
             self._adjustments[key] = RiderAdjustment()
             if matured:
                 self._matured.add(key)
+            if not adjustable:
+                self._view_only.add(key)
             btn = QPushButton(label)
             btn.setEnabled(True)
             if matured:
                 btn.setToolTip("Already matured — view details (no illustration adjustment)")
             elif adjustable:
-                btn.setToolTip("Keep / change / drop this rider")
+                btn.setToolTip("Keep / change / drop this rider" if self._allow_change
+                               else "Keep / drop this rider")
             else:
                 btn.setToolTip("View only — no illustration adjustment")
             self._style_button(btn, RiderAdjustment.KEEP, matured=matured)
@@ -1545,6 +1562,9 @@ class RiderButtonsPanel(QGroupBox):
                 button.setEnabled(False)
             amount_caption.setEnabled(False)
             amount_edit.setEnabled(False)
+        if not self._allow_change:
+            change_btn.setEnabled(False)
+            change_btn.setToolTip("Changing the rider amount is not illustrated for this product - keep or drop it.")
 
         {RiderAdjustment.KEEP: keep_btn,
          RiderAdjustment.CHANGE: change_btn,
@@ -1603,7 +1623,7 @@ class RiderButtonsPanel(QGroupBox):
                 continue
             # A matured rider/benefit is already out of the engine's coverage
             # set — any keep/change/drop the user clicks is view-only.
-            if key in self._matured:
+            if key in self._matured or key in self._view_only:
                 continue
             when = adj.effective_date
             if when is None and adj.effective_year is not None:
@@ -1668,6 +1688,11 @@ class RiderButtonsPanel(QGroupBox):
                 warnings.append(
                     f"Rider decision '{action}' for {label} did not apply — "
                     f"the rider/benefit has already matured on this policy.")
+                continue
+            if key in self._view_only:
+                warnings.append(
+                    f"Rider decision '{action}' for {label} did not apply — "
+                    f"the rider/benefit cannot be adjusted in this illustration.")
                 continue
             adj.action = action
             amount = data.get("new_amount")

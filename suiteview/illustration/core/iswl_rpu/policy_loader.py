@@ -93,7 +93,8 @@ def _loans(pi, last_account_value: Optional[date]) -> Tuple[ISWLRPULoan, ...]:
             table="LH_CSH_VAL_LOAN", as_of=loan.mv_date, principal=_float(loan.principal),
             accrued_interest=_float(loan.accrued_interest),
             rate=_float(loan.interest_rate) / 100.0 if loan.interest_rate is not None else None, current=True))
-    rows = [(parse_date((loan.raw_data or {}).get("MVRY_DT")), loan) for loan in pi.loans.get_loans()]
+    rows = [(parse_date((loan.raw_data or {}).get("MVRY_DT")), loan)
+            for loan in pi.loans.get_fund_loan_history()]
     after = [as_of for as_of, _loan in rows
              if as_of is None or last_account_value is None or as_of > last_account_value]
     # After the conversion the advanced loan rows are anniversary snapshots plus the

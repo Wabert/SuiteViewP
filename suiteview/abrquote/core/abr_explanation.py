@@ -37,7 +37,9 @@ from typing import List, Optional, Union
 from ..models.abr_data import ABRPolicyData, ABRQuoteResult, MedicalAssessment
 
 # ── Facts used in the explanation, sourced from the ABR forms and memoranda ──
-# See docs/ABRQuote/. Form numbers and filing references are intentionally kept
+# The actuarial memos are in docs/ABRQuote/; the filed rider forms are kept
+# outside this repo in the Dev workspace's ABR_Process folder. Form numbers and
+# filing references are intentionally kept
 # out of the customer-facing wording (this is a plain-language explanation, not
 # a contract citation), but are noted here for maintainers.
 

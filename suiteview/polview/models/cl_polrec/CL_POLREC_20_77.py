@@ -19,9 +19,8 @@ from datetime import date
 from typing import List, Optional
 
 from .cyberlife_base import PolicyDataAccessor, parse_date
-from .policy_data_classes import LoanInfo, TradLoanInfo, ScheduledLoanRepayment
+from .policy_data_classes import TradLoanInfo, ScheduledLoanRepayment
 from .policy_translations import (
-    LOAN_TYPE_CODES,
     translate_bill_form_code,
     translate_loan_interest_type_code,
     translate_loan_interest_status_code,
@@ -40,71 +39,6 @@ class LoanRecords:
 
     def __init__(self, policy: PolicyDataAccessor) -> None:
         self._policy = policy
-        self._loans: Optional[List[LoanInfo]] = None
-
-    def invalidate(self) -> None:
-        self._loans = None
-
-    # =====================================================================
-    # COMBINED LOANS (LH_CSH_VAL_LOAN + LH_FND_VAL_LOAN)
-    # =====================================================================
-
-    def get_loans(self) -> List[LoanInfo]:
-        """Get all active loans (traditional + fund-based)."""
-        if self._loans is not None:
-            return self._loans
-
-        self._loans = []
-
-        # Traditional loans
-        for row in self._policy.fetch_table("LH_CSH_VAL_LOAN"):
-            principal = Decimal(str(row.get("LN_PRI_AMT", 0) or 0))
-            if principal <= 0:
-                continue
-            accrued = Decimal("0")
-            if str(row.get("LN_ITS_AMT_TYP_CD")) == "2":
-                accrued = Decimal(str(row.get("POL_LN_ITS_AMT", 0) or 0))
-            loan = LoanInfo(
-                LN_TYP_CD=str(row.get("LN_TYP_CD", "")),
-                loan_type_desc=LOAN_TYPE_CODES.get(str(row.get("LN_TYP_CD", "")), ""),
-                LN_PRI_AMT=principal,
-                accrued_interest=accrued,
-                LN_ITS_RT=Decimal(str(row["LN_CRG_ITS_RT"])) if row.get("LN_CRG_ITS_RT") else None,
-                PRF_LN_IND=str(row.get("PRF_LN_IND")) == "1",
-                raw_data=row,
-            )
-            self._loans.append(loan)
-
-        # Fund-based loans
-        for row in self._policy.fetch_table("LH_FND_VAL_LOAN"):
-            principal = Decimal(str(row.get("LN_PRI_AMT", 0) or 0))
-            if principal <= 0:
-                continue
-            accrued = Decimal(str(row.get("POL_LN_ITS_AMT", 0) or 0))
-            loan = LoanInfo(
-                LN_TYP_CD=str(row.get("LN_TYP_CD", "")),
-                loan_type_desc=LOAN_TYPE_CODES.get(str(row.get("LN_TYP_CD", "")), ""),
-                LN_PRI_AMT=principal,
-                accrued_interest=accrued,
-                LN_ITS_RT=Decimal(str(row["LN_CRG_ITS_RT"])) if row.get("LN_CRG_ITS_RT") else None,
-                PRF_LN_IND=str(row.get("PRF_LN_IND")) == "1",
-                raw_data=row,
-            )
-            self._loans.append(loan)
-
-        return self._loans
-
-    @property
-    def total_loan_balance(self) -> Decimal:
-        return sum((l.LN_PRI_AMT + l.accrued_interest for l in self.get_loans()), Decimal("0"))
-
-    @property
-    def total_loan_principal(self) -> Decimal:
-        return sum((l.LN_PRI_AMT for l in self.get_loans()), Decimal("0"))
-
-    @property
-    def total_loan_interest(self) -> Decimal:
-        return sum((l.accrued_interest for l in self.get_loans()), Decimal("0"))
 
     # =====================================================================
     # TRADITIONAL LOAN DETAILS (LH_CSH_VAL_LOAN)

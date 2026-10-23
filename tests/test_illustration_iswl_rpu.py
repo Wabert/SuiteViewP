@@ -235,7 +235,7 @@ def _pi(advanced=True, status="45", line="I", trad_loans=(), loans=(), vpu=1000.
         values=_Stub(valuation_date=date(2026, 10, 7), last_account_value_date=date(2022, 1, 7),
                      death_benefit=20610),
         benefits=_Stub(get_benefits=lambda: []),
-        loans=_Stub(get_trad_loans=lambda: list(trad_loans), get_loans=lambda: list(loans)))
+        loans=_Stub(get_trad_loans=lambda: list(trad_loans), get_fund_loan_history=lambda: list(loans)))
 
 
 def _ul_loan(mv_date, principal, interest):

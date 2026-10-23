@@ -821,3 +821,19 @@ def test_report_prints_a_landscape_pdf(qtbot, tmp_path, monkeypatch):
     assert len(re.findall(rb"/Type\s*/Page\b", data)) == len(view.pages)
     assert re.findall(rb"/MediaBox \[0 0 792(?:\.0+)? 612(?:\.0+)?\]", data)        # Letter landscape
     assert fitting_font_pt(112) == 9.0 and fitting_font_pt(170) < 7.5            # wide ledgers shrink to fit
+
+def test_dividend_cell_uses_the_coverages_sub_series_keyed_row():
+    # NB1SL200 (10/23/2026): rate sex M on every coverage, dividend key 1-SL2-<sub-series> by the insured's sex.
+    from types import SimpleNamespace
+
+    from suiteview.core.rates_schema import DivAssignment
+    from suiteview.illustration.core.parwl.rates import _choose_dividend_cell
+    from suiteview.polview.models.schema_rates import RateKey
+
+    divs = [DivAssignment("M", "K", "0", "**", "", "1SL2FK", ""),
+            DivAssignment("F", "L", "0", "**", "", "1SL2FL", "", "FL"),
+            DivAssignment("M", "L", "0", "**", "", "1SL2ML", "", "ML")]
+    for sub in ("FL", "ML"):
+        coverage = SimpleNamespace(dividend_key=f"1SL2{sub}", subseries=sub)
+        chosen, notes = _choose_dividend_cell(divs, coverage, RateKey("M", "L", "0", "TX", sub), "")
+        assert (chosen.div_key, chosen.subseries) == (f"1SL2{sub}", sub) and notes == [f"dividend key 1SL2{sub}"]

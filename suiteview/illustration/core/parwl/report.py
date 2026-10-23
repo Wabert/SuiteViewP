@@ -40,6 +40,8 @@ from suiteview.illustration.models.parwl import (
     ParWLMonth,
     ParWLResult,
     ParWLYear,
+    droppable_riders,
+    with_riders_dropped,
 )
 from suiteview.polview.models.cl_polrec.policy_translations import rate_class_description
 
@@ -230,6 +232,11 @@ def _assumption_lines(result: ParWLResult, mode: str) -> List[str]:
         lines.append("LOAN INTEREST IS PAID IN CASH WHEN DUE")
     lines += _transaction_lines(months, lambda m: m.rider_payment, "PAID-UP ADDITIONS RIDER PREMIUM",
                                 "PAID-UP ADDITIONS RIDER PREMIUMS")
+    droppable = droppable_riders(policy)
+    for drop in sorted(inputs.rider_drops, key=lambda d: (d.when, d.key)):
+        year = completed_months(policy.issue_date, drop.when) // 12 + 1
+        lines.append(f"{plain_name(droppable.get(drop.key, drop.key))} IS DROPPED ON {short_date(drop.when)} "
+                     f"(YEAR {year})")
     for month in months:
         if "Reduced paid-up" in month.notes:
             lines.append(f"THE POLICY IS CONVERTED TO REDUCED PAID-UP INSURANCE ON {short_date(month.when)} "
@@ -334,7 +341,7 @@ def _note_paragraphs(result: ParWLResult) -> List[str]:
 
 
 def _other_coverage(result: ParWLResult) -> List[str]:
-    policy = result.policy
+    policy = with_riders_dropped(result.policy, result.inputs.rider_drops)
     lines = []
     for cov in policy.coverages:
         if cov.role == ROLE_TERM_RIDER:

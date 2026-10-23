@@ -5,8 +5,8 @@ JSON: {"policies": [{"policy": "UE063797", "company": "01"}], "region": "CKPR"}
 
 For every coverage and benefit leaf, each duration column built by
 ``polview.models.schema_rates`` (keyed ``"<scale> <rate type>"``) is compared row by row with ``rates.fn_RATE`` /
-``rates.fn_RATE_SUB`` (CELL), ``rates.fn_PLAN_RATE`` (PLAN) and ``rates.fn_DIV_RATE``
-(base dividends), called with the cell the grid chose, the row's date (CALENDAR) or
+``rates.fn_RATE_SUB`` (CELL), ``rates.fn_PLAN_RATE`` (PLAN) and ``rates.fn_DIV_RATE_SUB``
+(base dividends, with the coverage's sub-series), called with the cell the grid chose, the row's date (CALENDAR) or
 the issue date (ISSUE), and the row's duration. Single-value rates are checked the
 same way at duration 0. Read-only; prints a summary per leaf and each difference as it
 is found. A lock timeout or deadlock (a rate load in progress) is retried; a policy that
@@ -134,9 +134,9 @@ def _check_leaf(checker, repo, policy, ctx, matrix, include_plan: bool):
             year = row[4]
             on = ctx.issue_date + relativedelta(years=year - 1)
             expected = checker.one(
-                "SELECT BASE_DIV FROM rates.fn_DIV_RATE(?,?,?,?,?,?,?,?,?,?,?,?)",
+                "SELECT BASE_DIV FROM rates.fn_DIV_RATE_SUB(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 [ctx.plan.company, ctx.plancode, *_div_key(repo, ctx), "D", ctx.issue_date, on,
-                 ctx.issue_age, year],
+                 ctx.issue_age, year, ctx.key.subseries or ""],
             )
             checker.compare(ctx.label, "Dividend DIV", year, row[column], expected)
     return checker.checked - before

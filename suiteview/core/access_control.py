@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 APP_CODES = (
     "POLVIEW", "FILENAV", "ABR", "RERUN", "RERUNANYPLAN", "QUERY", "ALBERT",
     "SCRATCHPAD", "HISTORY", "SCREENSHOT", "MAINFRAMENAV",
-    "RATEMANAGER", "EMAILATTACHMENTS", "ATTENTIONALBERT", "PASSWORDMANAGER",
+    "RATEMANAGER", "EMAILATTACHMENTS", "PASSWORDMANAGER",
 )
 # Grants that are permissions within an app rather than apps (Administrator tooltips).
 APP_DESCRIPTIONS = {
@@ -24,11 +24,6 @@ APP_DESCRIPTIONS = {
                     "table (dbo.SV_RERUN_Plancode_Control) allows",
 }
 SUPPORT_PRIVILEGED_ROLES = frozenset({"ADMIN", "SUPPORT"})
-# The Attention Albert (AAI) task-bar button is Robert Haessly's alone (9/29/2026).
-# ATTENTIONALBERT grants only decide whose "Attention Albert" emails Albert
-# processes; they never show the button. Source (design-mode) runs show it to
-# whoever is running them.
-AAI_BUTTON_OWNER = "AB7Y02"
 # PolView's "Switch A" hand-off is Dev-only (10/8/2026): source runs show it;
 # the packaged app never does, whatever the user's role.
 SWITCH_A_APP = "MAINFRAMENAV"
@@ -63,11 +58,6 @@ class EffectiveAccess:
     def has_support_privileges(self) -> bool:
         """ADMIN/SUPPORT roles (and source runs) may bypass business-user restrictions."""
         return self.developer or self.role_code in SUPPORT_PRIVILEGED_ROLES
-
-    @property
-    def shows_aai_button(self) -> bool:
-        """Only the AAI owner gets the button in the packaged app; source runs always do."""
-        return self.developer or self.actor_id.upper() == AAI_BUTTON_OWNER
 
     @property
     def shows_switch_a_button(self) -> bool:
@@ -171,14 +161,6 @@ def guard_app_access(app_code: str) -> None:
 
 def has_support_privileges() -> bool:
     return get_access().has_support_privileges
-
-
-def guard_aai_button() -> None:
-    """Recheck, at click time, that this user may use the AAI task-bar button."""
-    if not get_access(refresh=True).shows_aai_button:
-        raise AccessDeniedError(
-            f"The Attention Albert button is available only to {AAI_BUTTON_OWNER}."
-        )
 
 
 def can_show_switch_a_button() -> bool:

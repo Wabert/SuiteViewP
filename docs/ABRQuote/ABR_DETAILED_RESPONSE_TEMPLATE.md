@@ -6,8 +6,9 @@ policyholder until the wording is cleared.
 standard explanation letter. **Part 3 below mirrors the app letter as of
 2026-08-18** (always full acceleration; life-expectancy figures omitted per
 business decision — see Part 4).
-**Reference letters:** `ABR CLM UE236383(A).docx` (7/24/2026) and
-`ABR_Benefit_Explanation_UE236383_*.docx` (generated) in this folder.
+**Reference letters:** the 7/24/2026 claim letter and the app-generated
+explanation it was compared with are policy-specific, so they are kept outside
+this repository in the Dev workspace's `ABR_Process` folder.
 
 ---
 

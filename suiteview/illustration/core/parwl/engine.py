@@ -35,6 +35,10 @@ time. Rules reproduced from CyberLife records (see ``docs/Illustration_UL/RERUN_
   anniversary it is paid (the year's first premium: all of it on annual billing, the
   first modal premium otherwise); the rest goes to the secondary option that day. The
   option is refused on PAC billing (``reduce_premium_on_pac``).
+* **Dropped riders** - a dropped term rider or benefit (``ParWLInputs.rider_drops``)
+  stops billing on its drop date and a term rider's face leaves the death benefit
+  (``with_riders_dropped``). The record's billed-premium difference is still measured
+  against the record's coverages.
 """
 from __future__ import annotations
 
@@ -64,7 +68,9 @@ from suiteview.illustration.models.parwl import (
     ParWLPolicy,
     ParWLResult,
     ParWLYear,
+    droppable_riders,
     reduce_premium_on_pac,
+    with_riders_dropped,
 )
 
 CENT = Decimal("0.01")
@@ -176,6 +182,10 @@ class ParWLEngine:
         self.day = self.base.issue_date.day
         self.notes: List[str] = list(policy.notes) + list(rates.notes)
         self._validate()
+        # The coverages and benefits as illustrated (dropped riders end on their drop date);
+        # self.policy stays the record.
+        self.illustrated = with_riders_dropped(policy, self.inputs.rider_drops)
+        self._note_rider_drops()
         self.frequency = int(self.inputs.billing_frequency or policy.billing_frequency)
         form = (self.inputs.bill_form or "").strip().upper()
         # The illustrated bill form when it is not the record's (None: the record's).
@@ -212,6 +222,7 @@ class ParWLEngine:
                                        f"{', '.join(f'{k} {v}' for k, v in BILL_FORM_LABELS.items())}).")
         if reduce_premium_on_pac(self.policy, self.inputs):
             raise ParWLProjectionError(PAC_REDUCE_PREMIUM_MESSAGE)
+        self._validate_rider_drops()
         if (self.policy.bill_form.strip().upper() == BILL_FORM_PAC and not self.inputs.bill_form
                 and self._start_option() == OPTION_REDUCE_PREMIUM):
             self.notes.append("The record has the Reduce premium dividend option on PAC billing; it is illustrated "
@@ -219,6 +230,28 @@ class ParWLEngine:
 
     def _start_option(self) -> str:
         return (self.inputs.dividend_option or self.policy.dividend_option or "").strip()
+
+    def _validate_rider_drops(self) -> None:
+        droppable = droppable_riders(self.policy)
+        for drop in self.inputs.rider_drops:
+            if drop.key not in droppable:
+                raise ParWLProjectionError(
+                    f"{drop.key} is not a term rider or benefit of this policy; only those can be dropped.")
+            if drop.when < self.policy.valuation_date:
+                raise ParWLProjectionError(
+                    f"{droppable[drop.key]} is dropped on {drop.when:%m/%d/%Y}, before the valuation date "
+                    f"{self.policy.valuation_date:%m/%d/%Y}.")
+            if drop.when.day != self.day and not self._is_month_end_anchor(drop.when):
+                raise ParWLProjectionError(
+                    f"{droppable[drop.key]} is dropped on {drop.when:%m/%d/%Y}, which is not a monthliversary "
+                    f"(day {self.day}).")
+
+    def _note_rider_drops(self) -> None:
+        droppable = droppable_riders(self.policy)
+        for drop in sorted(self.inputs.rider_drops, key=lambda d: (d.when, d.key)):
+            face = " and death benefit" if drop.key.startswith("cov:") else ""
+            self.notes.append(f"{droppable[drop.key]} is dropped on {drop.when:%m/%d/%Y}: its premium{face} "
+                              "stop from that date.")
 
     def _mode(self) -> str:
         return policy_mode(self.policy)
@@ -510,7 +543,7 @@ class ParWLEngine:
         return cents(max(0.0, loan.principal + loan.accrued - loan.unearned))
 
     def _term_rider_face(self, when: date) -> float:
-        return cents(sum(c.face_amount for c in self.policy.coverages
+        return cents(sum(c.face_amount for c in self.illustrated.coverages
                          if c.role == ROLE_TERM_RIDER and (c.maturity_date is None or when < c.maturity_date)))
 
     def _fill_values(self, state: _State, when: date, row: ParWLMonth) -> None:
@@ -845,7 +878,7 @@ class ParWLEngine:
 
     def _premium(self, state: _State, when: date, row: ParWLMonth) -> None:
         frequency, bill_form = self._billing_on(when)
-        parts = modal_premium(self.policy, self.rates, when, frequency, bill_form)
+        parts = modal_premium(self.illustrated, self.rates, when, frequency, bill_form)
         on_record = frequency == int(self.policy.billing_frequency) and bill_form is None
         adjustment = self.premium_adjustment if parts.base and on_record else 0.0
         row.base_premium = cents(parts.base + parts.rounding + adjustment)

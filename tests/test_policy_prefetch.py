@@ -652,6 +652,7 @@ def _projection_basis(**overrides):
         plancode="SYNTH", base_segment=segment, segments=[segment],
         valuation_date=date(2026, 9, 15), issue_date=date(2020, 1, 15), duration=81,
         account_value=200.0, run_from_issue=False, policy_year=7, attained_age=36,
+        total_loan_balance=0.0,
     )
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -665,7 +666,8 @@ def test_surrender_uses_scoped_policy_and_canonical_engine(source, monkeypatch):
 
     session = prefetch.PolicyLoadSession("TEST", as_of=date(2026, 9, 15))
     session.load_initial()
-    basis = _projection_basis()
+    # Stored MV-date debt; the engine's 25 includes the month's accrued loan interest.
+    basis = _projection_basis(total_loan_balance=20.0)
     rates = SimpleNamespace(segment_scr={1: [0, 1]}, scr=[0, 1])
     observed = []
 
@@ -695,7 +697,7 @@ def test_surrender_uses_scoped_policy_and_canonical_engine(source, monkeypatch):
     monkeypatch.setattr(rate_loader, "load_rates", lambda *args: rates)
     prepared = session.prepare("advprod")
     assert prepared.payload.surrender == prefetch.SurrenderValues(
-        surrender_charge=100, surrender_value=75, account_value=200.0, policy_debt=25,
+        surrender_charge=100, surrender_value=80, account_value=200.0, policy_debt=20.0,
         as_of=date(2026, 9, 15), original_units_basis=False,
         coverages=(prefetch.SurrenderChargeCoverage(1, 200.0, 0.5, 100),),
     )
@@ -772,7 +774,7 @@ def test_missing_illustration_plan_keeps_advanced_policy_values_available(source
         assert tab.policy_info._fields["surrender_value"].toolTip().splitlines()[1:] == [
             "  Account Value: 200.00",
             "- Surrender Charge: 1,500.00",
-            "- Policy Debt: 25.00",
+            "- Policy Debt (loans + accrued interest at the MV): 25.00",
             "= -1,325.00",
         ]
         interim_field = tab.policy_info._fields["interim_av_quote"]
