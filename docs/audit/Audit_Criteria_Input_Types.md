@@ -329,9 +329,16 @@ The left list is a read-only transaction type/subtype reference. On the right,
 * **Eff Mth / Eff Day:** separate compact rows with 40px numeric range inputs;
   **Eff Mth = Issue Mth** and **Eff Day = Issue Day** sit beside their respective ranges.
 * **Gross Amt:** inclusive From / To amounts below the month/day rows.
-* **Origin / Fund ID List:** beside the reversal controls below Gross Amt.
+* **Origin / Fund ID List / Acct Number:** a separate right-hand column starting
+  on the Transaction Type row, aligned in both sections.
   Origin matches any `ORIGIN_OF_TRANS` containing the entered text (case-sensitive,
   `%`/`_` treated literally); fund IDs are comma-separated and ORed.
+  Acct Number is a comma-separated, ORed list matched against
+  `FH_ACCTG.ACCTG_NBR`. `FH_ACCTG` holds the accounting lines (usually one debit
+  and one credit, sometimes 1 or 3+, often none) of one `FH_FIXED` row and links
+  on `CK_CMP_CD`, `TCH_POL_ID` and `SEQ_NO` (it has no `CK_SYS_CD` or dates).
+  Any line of the same transaction may match; a nested `EXISTS` keeps each
+  policy listed once. Verified by `tools/audit/verify_acctg_link.py`.
 * **Exclude:** per-section checkbox. Checked uses `NOT EXISTS`: the policy must have
   no transaction matching all of that section's criteria. Other nonmatching
   transactions do not let a policy pass. Exclude alone still leaves an empty

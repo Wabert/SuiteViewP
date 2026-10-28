@@ -187,6 +187,74 @@ def test_origin_matches_any_value_containing_the_text_literally(history):
     assert "TR1.ORIGIN_OF_TRANS LIKE '%ARM%' ESCAPE '\\'" in sql
 
 
+@pytest.fixture
+def accounting(history):
+    """Give each FH_FIXED row a SEQ_NO and add FH_ACCTG debit/credit lines."""
+    history.execute("ALTER TABLE FH_FIXED ADD COLUMN SEQ_NO INTEGER")
+    history.execute("UPDATE FH_FIXED SET SEQ_NO = rowid")
+    history.execute("""CREATE TABLE FH_ACCTG (
+        CK_CMP_CD TEXT, TCH_POL_ID TEXT, SEQ_NO INTEGER, ACCTG_SEQ INTEGER, ACCTG_NBR TEXT)""")
+    rows = history.execute(
+        "SELECT CK_CMP_CD, TCH_POL_ID, SEQ_NO, TRANS FROM FH_FIXED"
+        " WHERE TRANS IN ('PR', 'CD') AND TCH_POL_ID <> 'NULLS'",
+    ).fetchall()
+    for company, key, sequence, trans in rows:
+        debit, credit = ("1000001", "2000001") if trans == "PR" else ("1000002", "2000002")
+        history.executemany(
+            "INSERT INTO FH_ACCTG VALUES (?, ?, ?, ?, ?)",
+            [(company, key, sequence, 1, debit), (company, key, sequence, 2, credit)],
+        )
+    return history
+
+
+def test_account_number_matches_debit_or_credit_line_once_per_policy(accounting):
+    debit = TransactionCriteria(account_numbers="1000001")
+    credit = TransactionCriteria(account_numbers="2000001")
+    expected = ["BOTH", "CROSS", "FIRST", "SPLIT"]
+    assert _matches(accounting, debit) == expected
+    assert _matches(accounting, second=credit) == expected
+    # BOTH has two PR rows with two accounting lines each, but is listed once.
+    assert _matches(accounting, TransactionCriteria(account_numbers=" 1000001, 2000002 ")) == [
+        "BOTH", "CROSS", "FIRST", "SECOND", "SPLIT",
+    ]
+    assert _matches(accounting, TransactionCriteria(account_numbers="9999999")) == []
+    sql = _single_predicate(debit, "DB2TAB", 1)
+    assert "EXISTS (SELECT 1 FROM DB2TAB.FH_ACCTG ACCTG1" in sql
+    for key in ("CK_CMP_CD", "TCH_POL_ID", "SEQ_NO"):
+        assert f"ACCTG1.{key} = TR1.{key}" in sql
+    assert "ACCTG1.ACCTG_NBR IN ('1000001')" in sql
+    assert "CK_SYS_CD" not in sql
+    assert "JOIN" not in sql
+
+
+def test_account_number_must_belong_to_the_same_transaction(accounting):
+    # PR transactions carry 1000001; CD transactions carry 1000002.
+    assert _matches(accounting, TransactionCriteria(
+        transaction_types=("CD",), account_numbers="1000001",
+    )) == []
+    assert _matches(accounting, TransactionCriteria(
+        transaction_types=("CD",), account_numbers="1000002",
+    )) == ["BOTH", "SECOND", "SPLIT"]
+    # Same policy/sequence on another company cannot supply the accounting line.
+    accounting.execute(
+        "UPDATE FH_ACCTG SET CK_CMP_CD = '09' WHERE TCH_POL_ID = 'FIRST'",
+    )
+    assert "FIRST" not in _matches(accounting, TransactionCriteria(account_numbers="1000001"))
+
+
+def test_account_number_exclude_and_linked_pair(accounting):
+    excluded = TransactionCriteria(account_numbers="1000002", exclude=True)
+    assert _matches(accounting, excluded) == ["CROSS", "FIRST", "NONE", "NULLS"]
+    accounting.execute("UPDATE FH_FIXED SET ENTRY_DT = '2026-05-01' WHERE TRANS = 'CD'")
+    first = TransactionCriteria(transaction_types=("PR",), account_numbers="2000001")
+    second = TransactionCriteria(
+        account_numbers="1000002", entry_comparison=TransactionDateComparison.AFTER_ENTRY,
+    )
+    assert _matches(accounting, first, second) == ["BOTH", "SPLIT"]
+    sql = " AND ".join(transaction_predicates(first, second, "main"))
+    assert "FH_ACCTG ACCTG1" in sql and "FH_ACCTG ACCTG2" in sql
+
+
 @pytest.mark.parametrize("field,value", [
     ("entry_date", ("not a date", "")),
     ("effective_date", ("2026-02-30", "")),
@@ -201,6 +269,8 @@ def test_origin_matches_any_value_containing_the_text_literally(history):
     ("effective_day", ("20", "10")),
     ("fund_ids", ","),
     ("fund_ids", "F1,,F2"),
+    ("account_numbers", ","),
+    ("account_numbers", "1000001, ,2000001"),
     ("is_reversal_values", ("2",)),
     ("reversed_values", ("",)),
 ])

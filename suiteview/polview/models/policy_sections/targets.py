@@ -102,6 +102,12 @@ class TargetsSection(PolicySection):
         val = self.data_item_where("LH_COV_INS_GDL_PRM", "GDL_PRM_AMT", "PRM_RT_TYP_CD", "S")
         return Decimal(str(val)) if val is not None else None
 
+    @property
+    def has_guideline_premiums(self) -> bool:
+        """Whether the record carries guideline premiums: a GSP or GLP row
+        (LH_COV_INS_GDL_PRM) or an Accum GLP target (LH_POL_TARGET 'TA')."""
+        return any(v is not None for v in (self.gsp, self.glp, self.accumulated_glp_target))
+
     def cov_surrender_target(self, cov_pha_nbr: int) -> Optional[Decimal]:
         """Stored surrender target (LH_COV_TARGET TAR_TYP_CD 'ST', TAR_PRM_AMT) for a phase.
 

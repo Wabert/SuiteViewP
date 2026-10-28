@@ -87,6 +87,7 @@ def summary_policy(**overrides):
         total_death_benefit=Decimal("100000"), attained_age=55,
         def_of_life_ins_code="2", def_of_life_ins_description="DEFRA Guideline Premium",
         last_entry_code="C", terminate_date=None, issue_date=date(2009, 10, 19), pending=set(),
+        get_live_transactions=lambda _codes: [],
         db_option_description="Level Death Benefit (Option A)",
         has_scheduled_loan_repayment=False, scheduled_loan_repayment=None,
     )
@@ -216,6 +217,35 @@ def test_status_tones():
     assert insights.status_tone("22") == insights.OK
     assert insights.status_tone("45") == insights.INFO
     assert insights.status_tone("97") == insights.WARN
+
+
+def _status_chip(**overrides):
+    summary = insights.build_policy_summary(summary_policy(**overrides), today=date(2026, 9, 24))
+    return next(chip for chip in summary.chips if chip.key == "status")
+
+
+def _surrender(code):
+    return [SimpleNamespace(trans_code=code, trans_date=date(2026, 1, 5))]
+
+
+def test_full_surrender_gets_its_own_terminated_badge():
+    chip = _status_chip(
+        premium_pay_status_code="99", premium_pay_status_description="Terminated",
+        last_entry_code="P", get_live_transactions=lambda _codes: _surrender("SF"))
+    assert chip.text == "99 Full Surrender"
+    assert chip.tone == insights.DANGER
+    assert "cannot be reinstated" in chip.tooltip
+
+
+@pytest.mark.parametrize("last_entry,transactions", [
+    ("Q", []),              # lapse
+    ("P", _surrender("SI")),  # internal surrender
+])
+def test_reinstatable_terminations_keep_the_terminated_badge(last_entry, transactions):
+    chip = _status_chip(
+        premium_pay_status_code="99", premium_pay_status_description="Terminated",
+        last_entry_code=last_entry, get_live_transactions=lambda _codes: transactions)
+    assert chip.text == "99 Terminated"
 
 
 def test_traditional_paid_to_behind_valuation_is_a_badge():
@@ -351,6 +381,16 @@ def test_glp_exception_need_horizon_runs_through_the_next_anniversary():
 def test_suggestions_follow_the_situation():
     lapsed = summary_policy(last_entry_code="Q", terminate_date=date(2026, 5, 1))
     assert "reinstatement" in _suggestion_keys(lapsed)
+
+
+def test_reinstatement_is_not_suggested_after_the_reinstatement_period():
+    lapsed = summary_policy(last_entry_code="Q", terminate_date=date(2023, 9, 1))
+    assert "reinstatement" in _suggestion_keys(lapsed)  # 5-year plancode
+    three_year = summary_policy(last_entry_code="Q", terminate_date=date(2023, 9, 1),
+                                base_plancode="1U147400")
+    assert "reinstatement" not in _suggestion_keys(three_year)
+    expired = summary_policy(last_entry_code="Q", terminate_date=date(2021, 9, 1))
+    assert "reinstatement" not in _suggestion_keys(expired)
 
 
 # ── notes & recents ──────────────────────────────────────────────────────────

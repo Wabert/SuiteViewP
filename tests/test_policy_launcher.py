@@ -121,6 +121,59 @@ def test_abr_load_policy_ignores_blank(monkeypatch):
     win.close()
 
 
+# ── PolView load_policy: jump to an existing Policy List entry ────────
+
+
+def _polview_with_list(monkeypatch, tmp_path):
+    """PolView with its Policy List enabled and both load paths recorded."""
+    monkeypatch.setenv("SUITEVIEW_PROFILE_DIR", str(tmp_path))
+    _app()
+    win = GetPolicyWindow()
+    selected, fired = [], []
+    monkeypatch.setattr(win, "_on_policy_selected_from_list",
+                        lambda region, company, policy: selected.append(
+                            (region, company, policy)))
+    win.lookup_bar._on_get_policy = lambda: fired.append(True)
+    return win, selected, fired
+
+
+def test_polview_load_policy_jumps_to_listed_policy(monkeypatch, tmp_path):
+    win, selected, fired = _polview_with_list(monkeypatch, tmp_path)
+    win.policy_list_window.add_policy("CKPR", "01", "U0116323")
+    win.policy_list_window.add_policy("CKAS", "26", "U0116323")
+    win.policy_list_window.add_policy("CKAS", "01", "U0566833")
+    win.load_policy(" u0116323 ", region="ckas", company_code="")
+    # Region + policy match picks that list entry (with its resolved company).
+    assert selected == [("CKAS", "26", "U0116323")]
+    assert fired == []
+    win.policy_list_window.close()
+    win.close()
+
+
+def test_polview_load_policy_other_region_is_new_lookup(monkeypatch, tmp_path):
+    win, selected, fired = _polview_with_list(monkeypatch, tmp_path)
+    win.policy_list_window.add_policy("CKPR", "01", "U0116323")
+    win.load_policy("U0116323", region="CKAS", company_code="")
+    assert selected == []
+    assert fired == [True]
+    assert win.lookup_bar.region_input.text() == "CKAS"
+    assert win.lookup_bar.company_input.text() == ""
+    assert win.lookup_bar.policy_input.text() == "U0116323"
+    win.policy_list_window.close()
+    win.close()
+
+
+def test_polview_load_policy_explicit_company_skips_list(monkeypatch, tmp_path):
+    win, selected, fired = _polview_with_list(monkeypatch, tmp_path)
+    win.policy_list_window.add_policy("CKAS", "01", "U0116323")
+    win.load_policy("U0116323", region="CKAS", company_code="26")
+    assert selected == []
+    assert fired == [True]
+    assert win.lookup_bar.company_input.text() == "26"
+    win.policy_list_window.close()
+    win.close()
+
+
 # ── PolView header "Open in Illustrator" button ───────────────────────
 
 

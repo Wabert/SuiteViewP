@@ -39,6 +39,19 @@ def guaranteed_cash_value(policy) -> dict[str, Any]:
         return {"value": None, "details": [], "reason": f"Not calculated: {exc}"}
 
 
+def shows_guideline_premiums(policy) -> bool:
+    """Whether the Targets tab shows the guideline premium (GPT) values.
+
+    A GPT policy does; so does a policy whose definition-of-life code (TFDF_CD) is
+    blank but whose record still carries guideline premiums - CyberLife keeps
+    enforcing them (U0116323, issued 1987, 10/23/2026).
+    """
+    gpt_cvat = str(policy.product.gpt_cvat or "").strip().upper()
+    if gpt_cvat in ("GP", "GPT"):
+        return True
+    return not gpt_cvat and policy.targets.has_guideline_premiums
+
+
 def _doli_data(policy, is_advanced: bool) -> dict[str, Any]:
     if not is_advanced:
         return {"is_advanced": False}
@@ -59,8 +72,9 @@ def _doli_data(policy, is_advanced: bool) -> dict[str, Any]:
     min_qual_glp = None
     calc_inputs = None
     gpt_cvat = policy.product.gpt_cvat
+    show_guideline = shows_guideline_premiums(policy)
 
-    if gpt_cvat in ("GP", "GPT"):
+    if show_guideline:
         try:
             status_code = int(policy.status.status_code or "99")
             val_date = policy.values.valuation_date
@@ -100,6 +114,7 @@ def _doli_data(policy, is_advanced: bool) -> dict[str, Any]:
         "is_advanced": True,
         "tefra_defra": policy.product.tefra_defra,
         "gpt_cvat": gpt_cvat,
+        "show_guideline": show_guideline,
         "gsp": gsp_val,
         "glp": glp_val,
         "accum_glp": accum_glp_val,
@@ -115,8 +130,7 @@ def _doli_data(policy, is_advanced: bool) -> dict[str, Any]:
 
 def _prem_allowed_gpt(policy, is_advanced: bool):
     """``(value, inputs)``: remaining GPT premium room, or ``("N/A", None)``."""
-    is_cvat = (not is_advanced) or str(policy.product.gpt_cvat).upper() not in ("GP", "GPT")
-    if is_cvat:
+    if not is_advanced or not shows_guideline_premiums(policy):
         return "N/A", None
     try:
         inputs = {

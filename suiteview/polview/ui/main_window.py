@@ -813,20 +813,6 @@ class GetPolicyWindow(FramelessWindowBase):
         if self._enable_policy_list and hasattr(self, "policy_list_window"):
             self.policy_list_window.add_policy(region, company, policy)
 
-    def has_policy_loaded(self, policy_number: str) -> bool:
-        """Return True if *policy_number* is already in the policy list history.
-
-        Used by the taskbar so pressing the [P] button only re-loads a typed
-        policy when it's new; otherwise PolView stays on whatever policy was
-        last shown.
-        """
-        pn = (policy_number or "").strip()
-        if not pn:
-            return False
-        if self._enable_policy_list and hasattr(self, "policy_list_window"):
-            return self.policy_list_window.has_policy(pn)
-        return (self._current_policy or "").strip().upper() == pn.upper()
-
     def _on_policy_removed_from_list(self, policy_number: str, region: str):
         """Evict all cache entries for this policy+region (any company)."""
         keys_to_remove = [
@@ -1003,12 +989,20 @@ class GetPolicyWindow(FramelessWindowBase):
 
         Public entry point reused by the taskbar policy launcher — drives the
         shared PolicyLookupBar so the load is identical to a user typing the
-        policy and clicking Get.
+        policy and clicking Get. When no company is given and the region +
+        policy is already in the Policy List, jump to that entry (cached, no
+        company chooser) exactly as if the user clicked it in the list.
         """
-        policy_number = (policy_number or "").strip()
+        policy_number = (policy_number or "").strip().upper()
         if not policy_number:
             return
-        self.lookup_bar.region_input.setText(region or "CKPR")
+        region = (region or "CKPR").strip().upper()
+        if not company_code and self._enable_policy_list and hasattr(self, "policy_list_window"):
+            entry = self.policy_list_window.find_policy(region, policy_number)
+            if entry is not None:
+                self._on_policy_selected_from_list(*entry)
+                return
+        self.lookup_bar.region_input.setText(region)
         self.lookup_bar.company_input.setText(company_code or "")
         self.lookup_bar.policy_input.setText(policy_number)
         self.lookup_bar._on_get_policy()

@@ -45,6 +45,7 @@ class TransactionCriteria:
     gross_amount: tuple[str, str] = ("", "")
     origin: str = ""
     fund_ids: str = ""
+    account_numbers: str = ""
     on_issue_month: bool = False
     on_issue_day: bool = False
     exclude: bool = False
@@ -54,7 +55,14 @@ class TransactionCriteria:
     effective_comparison: TransactionDateComparison = TransactionDateComparison.NONE
 
 
-def _row_predicates(criteria: TransactionCriteria, number: int) -> list[str]:
+def _list_values(text: str, message: str) -> list[str]:
+    values = [value.strip() for value in text.split(",")]
+    if not all(values):
+        raise ValueError(message)
+    return values
+
+
+def _row_predicates(criteria: TransactionCriteria, number: int, schema: str) -> list[str]:
     alias = f"TR{number}"
     label = f"Transaction {number}"
     predicates = []
@@ -87,10 +95,26 @@ def _row_predicates(criteria: TransactionCriteria, number: int) -> list[str]:
         origin = escape_like_literal(esc(criteria.origin.strip()))
         predicates.append(f"{alias}.ORIGIN_OF_TRANS LIKE '%{origin}%' ESCAPE '\\'")
     if criteria.fund_ids.strip():
-        funds = [value.strip() for value in criteria.fund_ids.split(",")]
-        if not all(funds):
-            raise ValueError(f"{label} - Fund ID List: enter comma-separated IDs without empty entries.")
+        funds = _list_values(
+            criteria.fund_ids,
+            f"{label} - Fund ID List: enter comma-separated IDs without empty entries.",
+        )
         predicates.append(f"{alias}.FUND_ID IN ({in_list(funds)})")
+    if criteria.account_numbers.strip():
+        accounts = _list_values(
+            criteria.account_numbers,
+            f"{label} - Acct Number: enter comma-separated account numbers without empty entries.",
+        )
+        # FH_ACCTG holds the debit/credit lines of one FH_FIXED row (no CK_SYS_CD,
+        # no dates); EXISTS keeps one transaction per match instead of one per line.
+        acctg = f"ACCTG{number}"
+        predicates.append(
+            f"EXISTS (SELECT 1 FROM {schema}.FH_ACCTG {acctg}"
+            f" WHERE {acctg}.CK_CMP_CD = {alias}.CK_CMP_CD"
+            f" AND {acctg}.TCH_POL_ID = {alias}.TCH_POL_ID"
+            f" AND {acctg}.SEQ_NO = {alias}.SEQ_NO"
+            f" AND {acctg}.ACCTG_NBR IN ({in_list(accounts)}))"
+        )
     for column, values, name in (
         ("FCB0_REV_IND", criteria.is_reversal_values, "Is Reversal"),
         ("FCB2_REV_APPL_IND", criteria.reversed_values, "Reversed"),
@@ -140,8 +164,8 @@ def transaction_predicates(
             operator, reference = _DATE_COMPARISON_SQL[comparison]
             comparisons.append(f"TR2.{column} {operator} TR1.{reference}")
 
-    first_rows = _row_predicates(first, 1)
-    second_rows = _row_predicates(second, 2)
+    first_rows = _row_predicates(first, 1, schema)
+    second_rows = _row_predicates(second, 2, schema)
     if not comparisons:
         return [
             _exists(schema, number, rows, exclude=criteria.exclude)

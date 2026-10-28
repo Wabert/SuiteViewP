@@ -81,7 +81,7 @@ EXPECTED_WINDOW_HASHES = {
     "EmailAttachmentsWindow": "7ab269da444a210a15336b2639a0076cbc173450c31d5313c19b8833d7653314",
     "FileNavWindow": "99767126eafab660847c9b89826fe4c1a4157bd24f9e64df00bab05fa57a6953",
     # 10/23/2026: + the par WL Illustration Inputs' Riders & Benefits panel (group + note label).
-    "IllustrationWindow": "454972597dcd292f41f04f880fa5ede6b8f04a411390875ac0822099260d8b64",
+    "IllustrationWindow": "6ba9aa631e43791c9cda95e61cf6d34039dea6f4b95bea07d9067d8d67d360ad",
     "MainframeWindow": "c19845fb1ba4c49d4883ca2ec66fde93d791032d623f1abb5313b5749165de61",
     "PolView": "bbaf7415e20dc812b834606ee382e161df4581d56a23809b153402d532a1733e",
     "QueryObjectViewerWindow": "02e631280c21be8141fe599ce55ca57dce700da1a314b67c68b8a0b8634d40a3",

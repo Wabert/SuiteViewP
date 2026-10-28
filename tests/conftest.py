@@ -81,6 +81,69 @@ def _no_live_odbc(request, monkeypatch):
     yield
 
 
+def _is_explorer_command(args) -> bool:
+    if isinstance(args, (str, bytes)):
+        first = args.split()[0] if args.split() else ""
+    else:
+        first = next(iter(args), "")
+    if isinstance(first, bytes):
+        first = first.decode(errors="ignore")
+    return Path(str(first).strip('"')).name.lower() in {"explorer", "explorer.exe"}
+
+
+@pytest.fixture(autouse=True)
+def _no_desktop_launches(monkeypatch):
+    """Block real Explorer/browser/shell-open windows from unit tests.
+
+    Handlers such as "App Data Location" call os.startfile or run explorer.exe;
+    an unmocked test would pop a real window on Robert's desktop. Blocked
+    launches are recorded and the test fails at teardown. Tests that assert a
+    launch monkeypatch the call themselves, which overrides this guard.
+    """
+    import os
+    import subprocess
+    import webbrowser
+
+    launched: list[str] = []
+
+    def _record(kind):
+        def _blocked(target=None, *args, **kwargs):
+            launched.append(f"{kind}({target!r})")
+            return True
+        return _blocked
+
+    monkeypatch.setattr(os, "startfile", _record("os.startfile"), raising=False)
+    monkeypatch.setattr(webbrowser, "open", _record("webbrowser.open"))
+    monkeypatch.setattr(webbrowser, "open_new", _record("webbrowser.open_new"))
+    monkeypatch.setattr(webbrowser, "open_new_tab", _record("webbrowser.open_new_tab"))
+
+    real_popen = subprocess.Popen
+
+    class _GuardedPopen(real_popen):
+        def __init__(self, args, *popen_args, **popen_kwargs):
+            if _is_explorer_command(args):
+                launched.append(f"subprocess({args!r})")
+                raise OSError("explorer.exe launch blocked in a unit test")
+            super().__init__(args, *popen_args, **popen_kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", _GuardedPopen)
+
+    try:
+        from PyQt6.QtGui import QDesktopServices
+    except ImportError:
+        pass
+    else:
+        monkeypatch.setattr(QDesktopServices, "openUrl", _record("QDesktopServices.openUrl"))
+
+    yield
+    if launched:
+        pytest.fail(
+            "Unit test tried to open a real desktop window: "
+            + "; ".join(launched)
+            + ". Monkeypatch the launch call in the test."
+        )
+
+
 def pytest_sessionfinish(session, exitstatus):
     """Persist UL_Rates results captured in record mode, or prune unused ones."""
     from tests import ul_rates_replay

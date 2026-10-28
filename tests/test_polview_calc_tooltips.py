@@ -171,13 +171,35 @@ def test_surrender_charge_units_follow_sa_basis(sa_basis, expected):
 
 # ── Targets & Accumulators tips ─────────────────────────────────────────────
 
-def _gpt_policy(gpt="GP"):
+def _gpt_policy(gpt="GP", has_guideline=True):
     return SimpleNamespace(
         product=SimpleNamespace(gpt_cvat=gpt),
-        targets=SimpleNamespace(gsp=50000, accumulated_glp_target=30000),
+        targets=SimpleNamespace(gsp=50000, accumulated_glp_target=30000,
+                                has_guideline_premiums=has_guideline),
         billing=SimpleNamespace(premium_td=42000),
         values=SimpleNamespace(total_withdrawals=2000),
     )
+
+
+def test_blank_definition_of_life_shows_guideline_premiums_on_record(qtbot):
+    # U0116323 (issued 1987): TFDF_CD blank, but GSP / GLP / Accum GLP on the record.
+    from suiteview.polview.services.targets_view_model import shows_guideline_premiums
+    from suiteview.polview.ui.tabs.targets_tab import DefinitionOfLifeInsuranceWidget
+
+    assert shows_guideline_premiums(_gpt_policy(""))
+    assert not shows_guideline_premiums(_gpt_policy("", has_guideline=False))
+    assert not shows_guideline_premiums(_gpt_policy("CVAT"))
+    assert _prem_allowed_gpt(_gpt_policy(""), True)[0] == 10000.0
+    assert _prem_allowed_gpt(_gpt_policy("", has_guideline=False), True) == ("N/A", None)
+
+    widget = DefinitionOfLifeInsuranceWidget()
+    qtbot.addWidget(widget)
+    widget.load_data({"is_advanced": True, "tefra_defra": "", "gpt_cvat": "", "show_guideline": True,
+                      "gsp": 50000, "glp": 1200, "accum_glp": 30000})
+    assert widget._fields["guideline_label"].text() == "Not set"
+    assert "CyberLife enforces" in widget._fields["guideline_label"].toolTip()
+    assert not widget._fields["glp_label"].isHidden() and widget._fields["base_nsp_label"].isHidden()
+    assert widget._fields["accum_glp_label"].text() == "30,000.00"
 
 
 def test_prem_allowed_gpt_returns_value_and_inputs():

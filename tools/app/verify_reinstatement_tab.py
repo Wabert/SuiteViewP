@@ -30,14 +30,17 @@ from suiteview.polview.ui.tabs import reinstatement_tab
 SYNTHETIC_TODAY = date(2026, 10, 7)
 
 
-def synthetic_basis(today: date = SYNTHETIC_TODAY) -> reinstatement.ReinstatementBasis:
+def synthetic_basis(
+    today: date = SYNTHETIC_TODAY, plancode: str = "SYNTHETIC", in_no_lapse_period: bool = False,
+) -> reinstatement.ReinstatementBasis:
     years = 40
     policy = IllustrationPolicyData(
-        policy_number="SYNTHETIC", plancode="SYNTHETIC", product_type="UL",
+        policy_number="SYNTHETIC", plancode=plancode, product_type="UL",
         issue_date=date(2015, 3, 15), valuation_date=date(2026, 2, 15),
         issue_age=40, maturity_age=121, face_amount=100000.0, units=100.0,
         account_value=-25.0, premiums_paid_to_date=12000.0, ctp=1200.0,
-        map_cease_date=date(2025, 3, 15),
+        map_cease_date=date(2027, 3, 15) if in_no_lapse_period else date(2025, 3, 15),
+        mtp=50.0, accumulated_mtp=12500.0,
         segments=[CoverageSegment(
             issue_date=date(2015, 3, 15), issue_age=40, face_amount=100000.0,
             original_face_amount=100000.0, units=100.0, rate_sex="M", rate_class="N")],
@@ -65,6 +68,10 @@ def main() -> int:
     parser.add_argument("--policy", help="Omit for a synthetic demonstration.")
     parser.add_argument("--company", default="01")
     parser.add_argument("--region", default="CKPR")
+    parser.add_argument("--plancode", default="SYNTHETIC",
+                        help="Synthetic mode: plancode selecting the reinstatement formula.")
+    parser.add_argument("--in-no-lapse-period", action="store_true",
+                        help="Synthetic mode: the lapse falls inside the No-Lapse period.")
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     app = QApplication.instance() or QApplication([])
@@ -82,7 +89,8 @@ def main() -> int:
             )
             patches.enter_context(patch.object(
                 reinstatement_tab, "load_reinstatement_basis",
-                side_effect=lambda *_a, **_k: synthetic_basis(),
+                side_effect=lambda *_a, **_k: synthetic_basis(
+                    plancode=args.plancode, in_no_lapse_period=args.in_no_lapse_period),
             ))
         window = GetPolicyWindow(enable_policy_list=False)
         window._policy = policy

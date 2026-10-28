@@ -12,6 +12,7 @@ from suiteview.illustration.models.policy_data import (
 )
 from suiteview.polview.models.cl_polrec.policy_data_classes import BenefitInfo as RawBenefit
 from suiteview.polview.services import reinstatement as rein
+from suiteview.polview.services import reinstatement_rules as rules
 
 YEARS = 40
 ISSUE = date(2015, 3, 15)
@@ -106,7 +107,7 @@ def surrender(code, when=date(2023, 4, 30)):
 def test_internal_surrender_is_eligible_and_dated_by_the_si_transaction():
     policy = source(last_entry_code="P",
                     get_live_transactions=lambda codes: [surrender("SI")] if "SI" in codes else [])
-    result = rein.reinstatement_eligibility(policy)
+    result = rein.reinstatement_eligibility(policy, today=date(2025, 1, 1))
     assert result.eligible and "internal surrender" in result.last_entry_description
     assert rein.find_lapse_date(policy) == (date(2023, 4, 30), None)
 
@@ -115,6 +116,65 @@ def test_full_surrender_is_not_eligible():
     policy = source(last_entry_code="P", get_live_transactions=lambda codes: [surrender("SF")])
     result = rein.reinstatement_eligibility(policy)
     assert not result.eligible and "full surrender" in result.message
+    assert rein.is_full_surrender(policy)
+
+
+def test_internal_surrender_and_lapse_are_not_full_surrenders():
+    internal = source(last_entry_code="P", get_live_transactions=lambda codes: [surrender("SI")])
+    assert not rein.is_full_surrender(internal)
+    assert not rein.is_full_surrender(source())
+
+
+def lapse_on(when):
+    return source(get_live_transactions=lambda codes: (
+        [SimpleNamespace(trans_code="TL", trans_date=when, gross_amount=Decimal("-25"))]
+        if "TL" in codes else []))
+
+
+@pytest.mark.parametrize("today,eligible", [
+    (date(2031, 3, 15), True),    # exactly five years after the lapse
+    (date(2031, 3, 16), False),   # more than five years after the lapse
+])
+def test_lapse_is_reinstatable_for_five_years_by_default(today, eligible):
+    result = rein.reinstatement_eligibility(lapse_on(LAPSE), today=today)
+    assert result.eligible is eligible
+    if not eligible:
+        assert "more than 5 years ago" in result.message
+        assert "03/15/2026" in result.message
+
+
+@pytest.mark.parametrize("plancode", sorted(rules.THREE_YEAR_REINSTATEMENT_PLANCODES))
+@pytest.mark.parametrize("today,eligible", [
+    (date(2029, 3, 15), True),    # exactly three years after the lapse
+    (date(2029, 3, 16), False),   # more than three years after the lapse
+])
+def test_listed_plancodes_are_reinstatable_for_three_years(plancode, today, eligible):
+    policy = lapse_on(LAPSE)
+    policy.base_plancode = plancode
+    result = rein.reinstatement_eligibility(policy, today=today)
+    assert result.eligible is eligible
+    if not eligible:
+        assert "more than 3 years ago" in result.message
+
+
+def test_reinstatement_window_years_by_plancode():
+    assert len(rules.THREE_YEAR_REINSTATEMENT_PLANCODES) == 29
+    assert rules.reinstatement_window_years(" 1u147400 ") == 3
+    assert rules.reinstatement_window_years("1U147100") == 5
+    assert rules.reinstatement_window_years("") == 5
+
+
+def test_internal_surrender_past_the_period_is_not_eligible():
+    policy = source(last_entry_code="P", get_live_transactions=lambda codes: [surrender("SI")])
+    assert rein.reinstatement_eligibility(policy, today=date(2026, 10, 7)).eligible
+    result = rein.reinstatement_eligibility(policy, today=date(2028, 5, 1))
+    assert not result.eligible and "reinstatement period" in result.message
+
+
+def test_expired_lapse_is_never_loaded(monkeypatch):
+    monkeypatch.setattr(rein, "load_projection_basis", pytest.fail)
+    with pytest.raises(rein.ReinstatementError, match="more than 5 years ago"):
+        rein.load_reinstatement_basis(lapse_on(date(2020, 1, 15)), today=TODAY)
 
 
 def test_a_later_full_surrender_overrides_an_earlier_internal_surrender():
@@ -202,6 +262,165 @@ def test_reinstatement_premium_calculation():
     assert p.premium == Decimal("551.58")
     assert p.premium_load == Decimal("27.58")
     assert p.load_description == "5.00%"
+    assert p.formula == "standard" and p.poav_charge == Decimal("0.00") and p.no_lapse is None
+    assert p.standard_premium == p.premium and p.net_premium == Decimal("524.00")
+    assert quote.deduction.deduction_date == date(2026, 9, 15) and quote.next_deduction is None
+    assert not any("GIUL21" in note for note in quote.notes)
+
+
+# ── IUL reinstatement formulas (S151972 business requirements v2.0) ──────────
+
+@pytest.mark.parametrize("plancode,formula", [
+    ("1U144600", "iul08"), ("1U144700", "iul08"), ("1U144800", "iul08"),
+    ("1U145500", "no_lapse_iul"), ("1U146400", "no_lapse_iul"), ("1U145800", "no_lapse_iul"),
+    ("1U145600", "no_lapse_iul"), ("1U146500", "no_lapse_iul"), ("1U145900", "no_lapse_iul"),
+    ("1U146800", "no_lapse_iul"), ("1U146900", "no_lapse_iul"), ("1U147500", "no_lapse_iul"),
+    ("1U147800", "no_lapse_iul"), (" 1u147400 ", "giul21"),
+    ("1U147900", "standard"), ("1U147000", "standard"), ("SYNTHETIC", "standard"), ("", "standard"),
+])
+def test_plancodes_map_to_their_reinstatement_formula(plancode, formula):
+    assert rules.reinstatement_formula(plancode).value == formula
+
+
+def test_giul21_uses_lapse_date_charges_without_premium_load():
+    basis = make_basis(policy=make_policy(plancode="1U147400"), reinstatement_code="3")
+    quote = basis.quote(date(2026, 9, 15))
+    p = quote.premium
+    assert quote.deduction.deduction_date == LAPSE
+    assert (quote.deduction.policy_year, quote.deduction.policy_month) == (12, 1)
+    assert p.surrender_charge == basis.lapse.surrender_charge == Decimal("500.00")
+    # 500 + 0 + 24 + 25 - (-25) = 574, with no premium load.
+    assert p.subtotal == p.premium == p.standard_premium == p.net_premium == Decimal("574.00")
+    assert p.premium_load == p.poav_charge == Decimal("0.00")
+    assert p.load_description == "none: GIUL21"
+    assert any("1U147400 (GIUL21)" in note and "excludes the premium load" in note
+               for note in quote.notes)
+    after = basis.values_after_reinstatement(quote)
+    assert after.net_premium == Decimal("574.00")
+    assert after.snet_expiry_date == date(2025, 3, 15)  # never extended, even for code 3
+
+
+def test_giul21_with_no_requirement_owes_no_premium():
+    quote = make_basis(policy=make_policy(plancode="1U147400", account_value=5000.0)).quote(
+        date(2026, 9, 15))
+    assert quote.premium.premium == quote.premium.premium_load == Decimal("0.00")
+
+
+def poav_config(plancode, **changes):
+    return PlancodeConfig(plancode=plancode, poav_table="1", **changes)
+
+
+def poav_rates(**changes):
+    return make_rates(poav=[None] + [0.001] * YEARS, **changes)
+
+
+def test_iul14_outside_the_no_lapse_period_uses_two_lapse_deductions_with_poav():
+    basis = make_basis(policy=make_policy(plancode="1U145500", account_value=100.0),
+                       config=poav_config("1U145500"), rates=poav_rates())
+    quote = basis.quote(date(2026, 9, 15))
+    d, p = quote.deduction, quote.premium
+    assert d.deduction_date == LAPSE and d.av_charge == Decimal("0.10")
+    assert p.no_lapse is None
+    assert p.surrender_charge == basis.lapse.surrender_charge
+    assert p.coi_x2 == 2 * d.coi_total
+    assert p.fees_x2 == 2 * (d.fee_total - d.av_charge) == Decimal("25.00")
+    # PoAV is part of each monthly deduction (CKAS UE001742: 2 x $0.99), shown apart.
+    assert p.poav_charge == 2 * d.av_charge == Decimal("0.20")
+    assert p.subtotal == p.surrender_charge + 2 * d.total - Decimal("100.00")
+    assert p.premium == (p.subtotal / Decimal("0.95")).quantize(
+        Decimal("0.01"), rounding="ROUND_CEILING")
+    assert p.net_premium == p.subtotal
+
+
+def no_lapse_basis(accumulated_mtp, **changes):
+    policy = make_policy(plancode="1U145500", map_cease_date=date(2027, 3, 15), mtp=50.0,
+                         accumulated_mtp=accumulated_mtp, **changes)
+    return make_basis(policy=policy, reinstatement_code="1")
+
+
+def test_iul14_in_the_no_lapse_period_quotes_the_lesser_no_lapse_premium():
+    basis = no_lapse_basis(12500.0)
+    quote = basis.quote(date(2026, 9, 15))
+    p = quote.premium
+    # Standard: (500 + 24 + 25 + 25) / 0.95 = 604.22.
+    assert p.standard_premium == Decimal("604.22")
+    nl = p.no_lapse
+    # AccumMTP at lapse is the values record's accumulated MTP.
+    assert nl.accumulated_mtp == Decimal("12500.00")
+    assert nl.monthly_mtp == Decimal("50.00") and nl.premiums_paid == Decimal("12000.00")
+    assert nl.no_lapse_expiry == date(2027, 3, 15)
+    assert nl.premium == Decimal("550.00")  # 12,500 + 0 + 0 + 50 - 12,000
+    assert p.premium == Decimal("550.00") and p.uses_no_lapse_premium
+    assert p.net_premium == Decimal("522.50")  # the 5% load comes off when applied
+    assert any("No-Lapse premium is lower" in note for note in quote.notes)
+    after = basis.values_after_reinstatement(quote)
+    assert after.net_premium == Decimal("522.50")
+    # The guarantee is restored and extended by the 6 months terminated.
+    assert after.snet_expiry_date == date(2027, 9, 15)
+
+
+def test_iul14_no_lapse_premium_counts_withdrawals_and_debt():
+    p = no_lapse_basis(12500.0, withdrawals_to_date=10.0, regular_loan_principal=20.0).quote(
+        date(2026, 9, 15)).premium
+    assert p.no_lapse.premium == Decimal("580.00")
+    assert p.no_lapse.policy_debt == Decimal("20.00")
+
+
+def test_iul14_in_the_no_lapse_period_keeps_a_lower_standard_premium():
+    quote = no_lapse_basis(13000.0).quote(date(2026, 9, 15))
+    p = quote.premium
+    assert p.no_lapse.premium == Decimal("1050.00")
+    assert p.premium == p.standard_premium == Decimal("604.22") and not p.uses_no_lapse_premium
+    assert any("standard premium is lower" in note for note in quote.notes)
+
+
+def test_no_lapse_premium_is_never_negative():
+    p = no_lapse_basis(6000.0).quote(date(2026, 9, 15)).premium
+    assert p.no_lapse.premium == p.premium == p.net_premium == Decimal("0.00")
+
+
+def test_no_lapse_period_falls_back_to_the_plan_safety_net_years():
+    policy = make_policy(plancode="1U147800", mtp=50.0, accumulated_mtp=12500.0)
+    config = PlancodeConfig(plancode="1U147800", snet_by_issue_age={40: 15})
+    basis = make_basis(policy=policy, config=config)
+    # MAP date 03/15/2025 is before the lapse; 15 years from issue runs to 03/15/2030.
+    assert basis.no_lapse_expiry() == date(2030, 3, 15)
+    assert basis.quote(date(2026, 9, 15)).premium.uses_no_lapse_premium
+
+
+def test_missing_mtp_inside_the_no_lapse_period_is_loud():
+    with pytest.raises(rein.ReinstatementError, match="MTP"):
+        no_lapse_basis(0.0).quote(date(2026, 9, 15))
+
+
+def test_lapse_the_day_after_a_monthliversary_charges_that_monthliversary():
+    # CyberLife's TL date usually falls the day after the monthliversary (LD = last MV).
+    policy = make_policy(plancode="1U145500", map_cease_date=date(2027, 3, 15), mtp=50.0,
+                         accumulated_mtp=12500.0)
+    basis = make_basis(policy=policy, lapse_date=date(2026, 3, 16))
+    quote = basis.quote(date(2026, 9, 15))
+    assert quote.deduction.deduction_date == date(2026, 3, 15)
+    # Monthliversaries after the 03/16 TL date through 09/15: 04/15 ... 09/15.
+    assert basis.values_after_reinstatement(quote).snet_expiry_date == date(2027, 9, 15)
+
+
+def test_iul08_charges_the_reinstatement_and_next_month_deductions():
+    rates = poav_rates(segment_epu={1: [None] + [0.05] * 12 + [0.07] * (YEARS - 12)})
+    basis = make_basis(policy=make_policy(plancode="1U144600", account_value=100.0),
+                       config=poav_config("1U144600"), rates=rates, reinstatement_code="3")
+    when = date(2027, 2, 15)  # policy year 12; the next month starts year 13
+    quote = basis.quote(when)
+    d, nxt, p = quote.deduction, quote.next_deduction, quote.premium
+    assert d.deduction_date == when and nxt.deduction_date == date(2027, 3, 15)
+    assert (d.epu, nxt.epu) == (Decimal("5.00"), Decimal("7.00"))
+    assert p.surrender_charge == Decimal("450.00")  # reinstatement date, no duration adjustment
+    assert p.coi_x2 == d.coi_total + nxt.coi_total
+    assert p.fees_x2 == d.fee_total - d.av_charge + nxt.fee_total - nxt.av_charge
+    assert p.poav_charge == d.av_charge + nxt.av_charge == Decimal("0.20")
+    assert p.subtotal == p.surrender_charge + d.total + nxt.total - Decimal("100.00")
+    assert p.premium > p.subtotal and p.no_lapse is None
+    after = basis.values_after_reinstatement(quote)
+    assert after.snet_expiry_date == date(2025, 3, 15)  # SafetyNet ends at termination
 
 
 def test_policy_debt_is_added_to_the_subtotal():

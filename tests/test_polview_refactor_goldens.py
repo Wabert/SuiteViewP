@@ -314,7 +314,9 @@ def _reinstatement_payload():
     basis = rein.build_reinstatement_basis(
         policy, config, rates,
         eligibility=rein.reinstatement_eligibility(SimpleNamespace(
-            exists=True, product_type="UL", last_entry_code="Q")),
+            exists=True, product_type="UL", last_entry_code="Q",
+            get_live_transactions=lambda _codes: [], terminate_date=None),
+            today=date(2026, 2, 16)),
         lapse_date=date(2026, 1, 15),
         today=date(2026, 2, 16),
     )

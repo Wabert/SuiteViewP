@@ -1233,7 +1233,8 @@ month 1 and a level 636.41 for the rest of the policy year.
 The policy-scoped **Inforce | New Business - From Issue** toggle on Illustration
 Inputs selects a hypothetical issue illustration, not a historical replay.
 The issue mode has a blue window header, persistent mode notice and an
-**At-Issue Conditions** tab. The Policy tab always retains the loaded inforce
+**At-Issue Conditions** tab, which shows only while the toggle is on (Inforce
+mode hides it; hiding it while selected lands on **Input**). The Policy tab always retains the loaded inforce
 snapshot. Changing mode or issue assumptions invalidates old Values/Report.
 
 Default to original issue-date base segments (exclude later increases/COLA),
@@ -1274,6 +1275,48 @@ Regression coverage: `tests/test_illustration_run_from_issue.py`,
 access: `tools/app/verify_issue_illustration.py --output-dir <directory>` uses
 a synthetic policy and captures both themes. Month-end issue dates stay anchored
 to the original issue day, including the Illustration-to-Date cutoff.
+
+## RERUN reinstatement illustrations (status 97 / 99)
+
+A UL whose premium-pay status is **97** (Reinstatement Pending) or **99**
+(Terminated) gets a **Reinstatement** tab beside Policy: PolView's
+`ReinstatementTab` with the same values (`polview/services/reinstatement.py`).
+When the quote is available the illustration starts from it
+(`illustration/core/reinstatement_start.py`, `build_reinstated_policy`):
+
+- **Valuation date** = the reinstatement date (a monthliversary, default the
+  latest one on or before today); **forecast date** = the next monthliversary.
+- **Lump Sum** = the reinstatement premium, with the bold red note "This is the
+  Premium needed to reinstate on <date>" beside it (hidden in New Business).
+- **Account value**: the lapse AV is injected *before* the reinstatement-date
+  monthly deduction, which is calculated on the reinstated basis and removed. The
+  basis records `account_value = lapse AV - MD` and `system_monthly_deduction = MD`,
+  so the engine's MD check reconciles and the valuation row is post-deduction.
+- **Loans**: accrued interest is added to the principal when a policy anniversary
+  falls after the lapse values date and on or before the reinstatement date;
+  otherwise the accrued interest is reinstated as is. Crossing an anniversary also
+  resets premiums YTD and adds each anniversary's GLP to AccumGLP.
+- **CCV** benefits end at the lapse date (shadow account value 0); the **MAP**
+  (safety net) period stays terminated (`map_cease_date` no later than the lapse).
+- Durations run from the original issue date; status becomes 22 (premium paying);
+  rollback dates and Include Prem after Val date do not apply.
+
+Known gap against the S151972 IUL reinstatement requirements: the reinstated
+basis is always continuous coverage. It does not yet reduce IUL14/19/21/23 and
+GIUL21 charge durations by the months terminated, restore and extend an IUL14+
+No-Lapse guarantee, or skip the premium load on the GIUL21 lump sum. The quoted
+premium itself (the Lump Sum) follows the requirements.
+
+Run Values projects this reinstated basis (never a fresh reload); the Policy tab
+keeps the lapsed record with a banner, and the report discloses the reinstatement
+through `starting_basis_assumptions`. Changing the reinstatement date re-seats the
+inputs on the new basis (Inforce inputs kept; New Business and Edit Record are
+turned off) and re-prices the Lump Sum. A policy that cannot be reinstated (full
+surrender, other terminations, a termination past the plancode's 3- or 5-year
+reinstatement period, or missing
+data) keeps the tab with its reason and the lapse basis, and the run notice warns.
+Regression: `tests/test_illustration_reinstatement_start.py`,
+`tests/test_illustration_reinstatement_tab.py`.
 
 ## RERUN Value Rollback
 

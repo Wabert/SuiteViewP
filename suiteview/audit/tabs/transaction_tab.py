@@ -19,6 +19,8 @@ from ._styles import (
 _FONT = QFont("Segoe UI", 9)
 _FONT_BOLD = QFont("Segoe UI", 9, QFont.Weight.Bold)
 _CTRL_H = 22
+_COMPARISON_W = 190
+_DETAILS_GAP = 12
 _DATE_COMPARISON_HINT = (
     "Compare this Transaction 2 date with a matching Transaction 1 date on the same policy. "
     "After/Before are strict date comparisons; both dropdowns must match the same pair. "
@@ -78,7 +80,8 @@ class TransactionCriteriaPanel(QWidget):
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setHorizontalSpacing(6)
         grid.setVerticalSpacing(2)
-        grid.setColumnStretch(2, 1)
+        grid.setColumnMinimumWidth(2, _DETAILS_GAP)
+        grid.setColumnStretch(5, 1)
         self.transaction_types = make_multiselect_popup(
             _TRANSACTION_SELECT_ITEMS, width=280, height_rows=20,
         )
@@ -101,11 +104,18 @@ class TransactionCriteriaPanel(QWidget):
             bounds.addWidget(_label("to"))
             bounds.addWidget(hi)
             if number == 2 and name in ("entry", "eff"):
-                comparison = make_combo([item.value for item in TransactionDateComparison], width=190)
+                comparison = make_combo(
+                    [item.value for item in TransactionDateComparison], width=_COMPARISON_W,
+                )
                 comparison.setToolTip(_DATE_COMPARISON_HINT)
                 comparison.setAccessibleName(f"Transaction 2 {text} comparison")
                 self.date_comparisons[name] = comparison
                 bounds.addWidget(comparison)
+            elif name in ("entry", "eff"):
+                # Reserve Transaction 2's comparison width so both detail columns line up.
+                placeholder = QWidget()
+                placeholder.setFixedSize(_COMPARISON_W, _CTRL_H)
+                bounds.addWidget(placeholder)
             if name == "eff_month":
                 self.chk_eff_month = make_checkbox("Eff Mth = Issue Mth")
                 bounds.addWidget(self.chk_eff_month)
@@ -146,19 +156,25 @@ class TransactionCriteriaPanel(QWidget):
             group.addWidget(choices)
             reversals.addLayout(group)
             self.reversal_filters[name] = (checkbox, choices)
-        details = QHBoxLayout()
-        details.setSpacing(6)
+        reversals.addStretch()
+        grid.addLayout(reversals, 6, 1)
+
         self.txt_origin = _entry(45)
         self.txt_origin.setToolTip("ORIGIN_OF_TRANS contains this text")
         self.txt_fund_id = _entry(110)
         self.txt_fund_id.setToolTip("Comma-separated fund IDs; any listed ID may match.")
-        details.addWidget(_label("Origin"))
-        details.addWidget(self.txt_origin)
-        details.addWidget(_label("Fund ID List"))
-        details.addWidget(self.txt_fund_id)
-        details.addStretch()
-        reversals.addLayout(details)
-        grid.addLayout(reversals, 6, 1)
+        self.txt_acct_number = _entry(110)
+        self.txt_acct_number.setToolTip(
+            "FH_ACCTG.ACCTG_NBR on any accounting line (debit or credit) of the transaction. "
+            "Comma-separated; any listed number may match. Each policy is listed once."
+        )
+        for row, (text, edit) in enumerate((
+            ("Origin", self.txt_origin),
+            ("Fund ID List", self.txt_fund_id),
+            ("Acct Number", self.txt_acct_number),
+        )):
+            grid.addWidget(_label(text), row, 3)
+            grid.addWidget(edit, row, 4, Qt.AlignmentFlag.AlignLeft)
         root.addLayout(grid)
 
     def criteria(self) -> TransactionCriteria:
@@ -181,6 +197,7 @@ class TransactionCriteriaPanel(QWidget):
             effective_month=bounds("eff_month"), effective_day=bounds("eff_day"),
             gross_amount=bounds("gross"), origin=self.txt_origin.text().strip(),
             fund_ids=self.txt_fund_id.text().strip(),
+            account_numbers=self.txt_acct_number.text().strip(),
             on_issue_month=self.chk_eff_month.isChecked(),
             on_issue_day=self.chk_eff_day.isChecked(),
             exclude=self.chk_exclude.isChecked(),
@@ -198,6 +215,7 @@ class TransactionCriteriaPanel(QWidget):
             "chk_eff_day": self.chk_eff_day.isChecked(),
             "txt_origin": self.txt_origin.text(),
             "txt_fund_id": self.txt_fund_id.text(),
+            "txt_acct_number": self.txt_acct_number.text(),
         }
         for name, (lo, hi) in self.ranges.items():
             state[f"txt_{name}_lo"] = lo.text()
@@ -223,6 +241,7 @@ class TransactionCriteriaPanel(QWidget):
         self.chk_eff_day.setChecked(state.get("chk_eff_day", False))
         self.txt_origin.setText(state.get("txt_origin", ""))
         self.txt_fund_id.setText(state.get("txt_fund_id", ""))
+        self.txt_acct_number.setText(state.get("txt_acct_number", ""))
         for name, (lo, hi) in self.ranges.items():
             lo.setText(state.get(f"txt_{name}_lo", ""))
             hi.setText(state.get(f"txt_{name}_hi", ""))

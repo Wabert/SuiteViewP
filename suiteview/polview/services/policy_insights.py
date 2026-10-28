@@ -23,6 +23,8 @@ from suiteview.polview.models.policy_sections.lookup import policy_attr
 logger = logging.getLogger(__name__)
 
 PRODUCTION_REGION = "CKPR"
+# PRM_PAY_STA_REA_CD 99: terminated (a full surrender gets its own status chip).
+TERMINATED_STATUS = "99"
 REGION_LABELS = {
     "CKMO": "MODEL",
     "CKAS": "ACCEPTANCE",
@@ -158,6 +160,16 @@ def _same_month_day(a: Optional[date], b: date) -> bool:
     return bool(a and (a.month, a.day) == (b.month, b.day))
 
 
+def _is_full_surrender(read: "_Reader") -> bool:
+    """Terminated by a full surrender (P, not ending in an internal surrender SI)."""
+    code = str(read.get("last_entry_code") or "").strip().upper()
+    if code != "P":
+        return False
+    from suiteview.polview.services.reinstatement import is_full_surrender
+
+    return bool(read.get("full_surrender", is_full_surrender))
+
+
 @dataclass(frozen=True)
 class PolicySummaryFacts:
     region: str
@@ -227,12 +239,21 @@ def _summary_chips(
         chips.append(Chip("pending", "Pending", WARN,
                           "Pending policy (CK_SYS_CD = 'P'), not yet inforce."))
     if facts.status_code:
-        chips.append(Chip(
-            "status", f"{facts.status_code} {facts.status_desc or ''}".strip(),
-            status_tone(facts.status_code),
-            f"Premium paying status {facts.status_code} - {facts.status_desc}\n"
-            "Source: LH_BAS_POL.PRM_PAY_STA_REA_CD",
-        ))
+        if facts.status_code.strip() == TERMINATED_STATUS and _is_full_surrender(read):
+            chips.append(Chip(
+                "status", f"{facts.status_code} Full Surrender", DANGER,
+                f"Premium paying status {facts.status_code} - terminated by a full surrender "
+                "(last entry P, Termination - Surrender, not an internal surrender SI).\n"
+                "A fully surrendered policy cannot be reinstated.\n"
+                "Source: LH_BAS_POL.PRM_PAY_STA_REA_CD, LH_BAS_POL.LST_ETR_CD",
+            ))
+        else:
+            chips.append(Chip(
+                "status", f"{facts.status_code} {facts.status_desc or ''}".strip(),
+                status_tone(facts.status_code),
+                f"Premium paying status {facts.status_code} - {facts.status_desc}\n"
+                "Source: LH_BAS_POL.PRM_PAY_STA_REA_CD",
+            ))
     _append_policy_condition_chips(chips, read, facts)
     partner = _append_reinsurance_and_product_chips(chips, read, facts)
     _append_life_and_date_chips(chips, read, facts, today)
@@ -549,7 +570,7 @@ def suggested_actions(policy, summary: PolicySummary,
         from suiteview.polview.services.reinstatement import reinstatement_eligibility
 
         read = _Reader(policy)
-        eligibility = read.get("reinstatement", lambda p: reinstatement_eligibility(p))
+        eligibility = read.get("reinstatement", lambda p: reinstatement_eligibility(p, today))
         if eligibility is not None and eligibility.eligible:
             suggestions.append(Suggestion(
                 "reinstatement", "Quote reinstatement",

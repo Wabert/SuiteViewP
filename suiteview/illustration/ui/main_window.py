@@ -67,6 +67,11 @@ from suiteview.illustration.core.run_input_compiler import (
     compile_options,
 )
 from suiteview.illustration.core.scenario_builder import build_illustration_scenario
+from suiteview.illustration.core.reinstatement_start import (
+    ReinstatementStart,
+    ReinstatementStartError,
+    build_reinstated_policy,
+)
 from suiteview.illustration.core.premiums_after_valuation import (
     describe_premiums_after_valuation,
     forecast_date,
@@ -85,6 +90,8 @@ from suiteview.polview.ui.policy_summary_strip import (
     open_policy_timeline,
 )
 from suiteview.polview.ui.widgets import PolicyLookupBar
+from suiteview.polview.ui.tabs.reinstatement_tab import ReinstatementTab
+from suiteview.polview.models.policy_sections.lookup import policy_attr
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 
 from suiteview.illustration.models.case_store import CaseStoreError
@@ -155,6 +162,10 @@ RUN_WARNING_STYLE = (
     "color: #5C3A00; background-color: #FFF4D6; border: 1px solid #D4A017;"
     " border-radius: 4px; padding: 5px 10px; margin: 0 10px; font-size: 11px;"
     " font-weight: bold;")
+# Premium-pay statuses (PRM_PAY_STA_REA_CD) that get the Reinstatement tab:
+# 97 Reinstatement Pending, 99 Terminated.
+REINSTATEMENT_STATUS_CODES = frozenset({"97", "99"})
+REINSTATEMENT_TAB_LABEL = "Reinstatement"
 
 
 class IllustrationWindow(FramelessWindowBase):
@@ -210,6 +221,13 @@ class IllustrationWindow(FramelessWindowBase):
         # policy load (Get button / policy node). Invariant: when set, its
         # .policy_snapshot is never None.
         self._snapshot_case = None
+        # Reinstatement illustrations (UL status 97/99): the Reinstatement tab's
+        # quote, the reinstated starting basis built from it (it replaces
+        # _illustration_data) and the lapse basis it replaced.
+        self.reinstatement_tab: Optional[ReinstatementTab] = None
+        self._reinstatement_start: Optional[ReinstatementStart] = None
+        self._lapsed_illustration_data = None
+        self._reinstatement_warning = ""
 
         # The List panel-toggle button lives IN the window header (title
         # bar) — built before super().__init__ so FramelessWindowBase can
@@ -744,10 +762,16 @@ class IllustrationWindow(FramelessWindowBase):
             f"background-color: {ISSUE_BLUE_BG if enabled else PURPLE_BG};")
         self.tabs.setStyleSheet(
             ISSUE_TAB_WIDGET_STYLE if enabled else TAB_WIDGET_STYLE)
+        start = self._reinstatement_start
         self.projection_mode_notice.setText(
             "NEW BUSINESS - FROM ISSUE | Hypothetical issue conditions; current side uses scale 1. "
             "Zero opening balances. Policy tab remains the loaded inforce snapshot."
             if enabled else
+            f"REINSTATEMENT | Lapsed {start.lapse_date:%m/%d/%Y}. The illustration starts on "
+            f"the {start.reinstatement_date:%m/%d/%Y} reinstatement date from the restored "
+            "lapse values after that date's monthly deduction; the reinstatement premium is "
+            f"the Lump Sum on the {start.forecast_date:%m/%d/%Y} forecast date."
+            if start is not None else
             "INFORCE | Projection starts after the loaded valuation date. "
             "At-issue edits do not apply.")
         self.projection_mode_notice.setStyleSheet(
@@ -765,6 +789,8 @@ class IllustrationWindow(FramelessWindowBase):
             title += f" — Case “{self._snapshot_case.name}”"
         if enabled:
             title += " - NEW BUSINESS FROM ISSUE"
+        elif self._reinstatement_start is not None:
+            title += f" - REINSTATEMENT {self._reinstatement_start.reinstatement_date:%m/%d/%Y}"
         rollback = self.inputs_tab.export_rollback_overrides()
         historical = self._is_historical_selection(rollback)
         if historical:
@@ -1078,6 +1104,17 @@ class IllustrationWindow(FramelessWindowBase):
                 self.policy_tab.show_starting_values(starting, self._illustration_data)
                 self.policy_tab.set_snapshot_banner(
                     "The loaded policy record is unchanged." + included_note)
+            elif self._reinstatement_start is not None:
+                start = self._reinstatement_start
+                self.policy_tab.set_snapshot_banner(
+                    f"REINSTATEMENT ILLUSTRATION - lapsed {start.lapse_date:%m/%d/%Y}, "
+                    f"reinstated {start.reinstatement_date:%m/%d/%Y}. This tab shows the "
+                    "lapsed policy record; the illustration starts from the reinstated "
+                    f"values (account value ${start.account_value:,.2f} after the "
+                    f"${start.monthly_deduction:,.2f} reinstatement-date monthly deduction). "
+                    "Hover for details.")
+                self.policy_tab.snapshot_banner.setToolTip(
+                    "\n\n".join(start.policy.starting_basis_assumptions))
         elif self._illustration_data is not None:
             self.policy_tab.load_data_from_snapshot(starting or self._illustration_data)
             if include:
@@ -1094,6 +1131,127 @@ class IllustrationWindow(FramelessWindowBase):
         self.run_values_btn.setEnabled(
             self._illustration_data is not None and not self._rollback_projection_blocked)
         self._on_record_drafts_changed(self.policy_tab.has_pending_record_changes())
+
+    # ── Reinstatement (UL status 97 / 99) ─────────────────────────
+
+    @staticmethod
+    def _needs_reinstatement_tab(policy) -> bool:
+        status = str(policy_attr(policy, "premium_pay_status_code", "") or "").strip()
+        return status in REINSTATEMENT_STATUS_CODES
+
+    def _show_reinstatement_tab(self) -> ReinstatementTab:
+        if self.reinstatement_tab is None:
+            self.reinstatement_tab = ReinstatementTab(self.tabs)
+            self.reinstatement_tab.quote_changed.connect(self._on_reinstatement_quote_changed)
+        if self.tabs.indexOf(self.reinstatement_tab) == -1:
+            # Beside Policy: the quote is read before the inputs are reviewed.
+            self.tabs.insertTab(
+                self.tabs.indexOf(self.policy_tab) + 1, self.reinstatement_tab,
+                REINSTATEMENT_TAB_LABEL)
+        return self.reinstatement_tab
+
+    def _clear_reinstatement(self) -> None:
+        """Forget the reinstatement basis and remove the Reinstatement tab."""
+        self._reinstatement_start = None
+        self._lapsed_illustration_data = None
+        self._reinstatement_warning = ""
+        tab = self.reinstatement_tab
+        if tab is not None:
+            index = self.tabs.indexOf(tab)
+            if index != -1:
+                self.tabs.removeTab(index)
+            tab.hide()
+            with muted_signals(tab):
+                tab.clear()
+
+    def _load_reinstatement(self) -> None:
+        """Quote reinstatement for a status 97/99 UL and start the illustration from it.
+
+        Runs before the inputs tab loads, so ``_illustration_data`` is already the
+        reinstated basis the inputs, Policy tab and runs use. A policy that cannot
+        be reinstated keeps the lapse basis and says why in the run notice.
+        """
+        self._clear_reinstatement()
+        if self._policy is None or not self._needs_reinstatement_tab(self._policy):
+            return
+        self._lapsed_illustration_data = self._illustration_data
+        tab = self._show_reinstatement_tab()
+        try:
+            with muted_signals(tab):
+                tab.load_policy(self._policy)
+        except Exception as exc:  # the policy still loads; the reason is shown loudly
+            logger.exception("Reinstatement quote failed for %s", self._policy.policy_number)
+            self._reinstatement_warning = f"Reinstatement illustration unavailable: {exc}"
+            return
+        self._build_reinstatement_start()
+
+    def _build_reinstatement_start(self) -> None:
+        """Rebuild the reinstated basis from the tab's current quote."""
+        tab = self.reinstatement_tab
+        basis = tab.basis if tab is not None else None
+        quote = tab.quote if tab is not None else None
+        self._reinstatement_start = None
+        self._reinstatement_warning = ""
+        self._illustration_data = self._lapsed_illustration_data
+        if basis is None or quote is None:
+            reason = tab.status_label.text() if tab is not None else ""
+            self._reinstatement_warning = (
+                f"Reinstatement illustration unavailable: {reason}" if reason else
+                "Reinstatement illustration unavailable.")
+            return
+        try:
+            start = build_reinstated_policy(
+                basis.policy, basis.config, basis.rates,
+                lapse_date=basis.lapse.lapse_date,
+                reinstatement_date=quote.reinstatement_date, cvat=basis.cvat)
+        except (ReinstatementStartError, ValueError, ArithmeticError) as exc:
+            logger.warning("Reinstated basis unavailable: %s", exc, exc_info=True)
+            self._reinstatement_warning = f"Reinstatement illustration unavailable: {exc}"
+            return
+        self._reinstatement_start = start
+        self._illustration_data = start.policy
+
+    def _apply_reinstatement_inputs(self) -> None:
+        """Lump Sum = the reinstatement premium, with its bold red note."""
+        start = self._reinstatement_start
+        if start is None:
+            self.inputs_tab.set_reinstatement_lumpsum(None, None)
+            return
+        self.inputs_tab.set_reinstatement_lumpsum(
+            float(self.reinstatement_tab.quote.premium.premium), start.reinstatement_date)
+
+    def _on_reinstatement_quote_changed(self) -> None:
+        """A new reinstatement date: re-seat the illustration on that basis."""
+        tab = self.reinstatement_tab
+        if (tab is None or self.tabs.indexOf(tab) == -1 or self._snapshot_case is not None
+                or self._policy is None):
+            return
+        had_start = self._reinstatement_start is not None
+        self._build_reinstatement_start()
+        policy = self._illustration_data
+        if policy is not None:
+            self.inputs_tab.reseat_policy_basis(
+                policy, has_shadow=bool(policy.has_shadow_account),
+                shadow_ceased=bool(policy.ccv_ceased))
+        if self._reinstatement_start is None and had_start:
+            # The previous reinstatement premium must not ride on the lapse basis.
+            self.inputs_tab.set_lumpsum_amount(None)
+        self._apply_reinstatement_inputs()
+        session = self._session_states.get(self._current_key) if self._current_key else None
+        if session is not None:
+            session.policy_data = policy
+        self._invalidate_issue_results()
+        self._refresh_rollback_controls()
+        self._refresh_policy_basis()
+        self._on_run_from_issue_changed(self.inputs_tab.run_from_issue_enabled(), self.inputs_tab)
+        self._apply_illustration_gate()
+        if self._reinstatement_start is not None:
+            self._show_status(
+                "Reinstatement illustration re-based on "
+                f"{self._reinstatement_start.reinstatement_date:%m/%d/%Y} - review inputs, "
+                "then Run Values.")
+        else:
+            self._show_status(self._reinstatement_warning)
 
     def _invalidate_issue_results(self, source_tab=None):
         if not self._presenter.is_active_inputs_event(self.inputs_tab, source_tab):
@@ -1271,6 +1429,7 @@ class IllustrationWindow(FramelessWindowBase):
             if not self._policy.exists:
                 QMessageBox.warning(self, "Not Found", f"Policy {policy_number} not found in {region}")
                 self._show_status("Policy not found")
+                self._clear_reinstatement()
                 self.summary_strip.clear("Policy not found")
                 self._default_inputs_on_next_get = False
                 self.run_values_btn.setEnabled(False)
@@ -1325,6 +1484,7 @@ class IllustrationWindow(FramelessWindowBase):
             default_inputs: bool = False):
         if not self._policy or not self._policy.exists:
             return
+        self._clear_reinstatement()
         self._snapshot_case = None
         self._rollback_projection_blocked = False
         self._set_live_header_mode()
@@ -1372,6 +1532,8 @@ class IllustrationWindow(FramelessWindowBase):
             company_code=company_code,
         )
         self._live_policy_checks = (self._policy, warnings, md_check)
+        # Status 97/99 UL: the illustration starts from the reinstatement quote.
+        self._load_reinstatement()
         self.policy_tab.load_data_from_policy(self._policy, self._policy_info, md_check=md_check)
         self.policy_tab.set_rate_warnings(warnings)
         self._refresh_summary_strip()
@@ -1425,6 +1587,7 @@ class IllustrationWindow(FramelessWindowBase):
             if not self.report_tab.restore_session_state(session.report):
                 self.report_tab.clear()
             self._last_scenario = session.scenario
+        self._apply_reinstatement_inputs()
 
         # Live data on screen — no as-of strip on this policy's inputs tab.
         self.inputs_tab.set_snapshot_notice(None)
@@ -1756,6 +1919,7 @@ class IllustrationWindow(FramelessWindowBase):
         self.lookup_bar.set_policy_display(company_code, policy_number, region)
 
         self._snapshot_case = case
+        self._clear_reinstatement()
         self._policy = None            # no live PolicyInformation in this mode
         self._live_policy_checks = None
         self._snapshot_load_problems(snapshot)
@@ -2030,6 +2194,8 @@ class IllustrationWindow(FramelessWindowBase):
                     f"{detail} Business users are blocked from running this policy.")
         if self._load_md_warning:
             warnings.append(self._load_md_warning)
+        if self._reinstatement_warning:
+            warnings.append(self._reinstatement_warning)
         return tuple(blocks), tuple(warnings)
 
     @staticmethod
@@ -2142,8 +2308,10 @@ class IllustrationWindow(FramelessWindowBase):
             policy_number = self._policy_info.get("PolicyNumber", self._policy.policy_number)
             region = self._policy_info.get("Region", self._current_region or "CKPR")
             company_code = self._policy_info.get("CompanyCode", self._policy.company_code)
-            if rollback is not None or draft.include_premiums_after_valuation:
-                # Run exactly the basis the Policy tab shows, not a fresh reload.
+            if (rollback is not None or draft.include_premiums_after_valuation
+                    or self._reinstatement_start is not None):
+                # Run exactly the basis the Policy tab shows (or the reinstated
+                # basis), not a fresh reload.
                 policy_data = self._illustration_data
 
         rollback_status = ""

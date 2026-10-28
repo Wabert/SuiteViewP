@@ -342,20 +342,34 @@ native layout using synthetic results only.
 tab (Robert's October 7, 2026 redesign). A non-UL policy gets an informational
 popup and no tab. A lapse (last entry `Q`) and an internal surrender (last entry `P`
 whose last surrender transaction is `SI`) are eligible; a full surrender (`SF`) and
-other terminations must never produce a reinstatement premium. Changing or
+other terminations must never produce a reinstatement premium. A termination older
+than the plancode's reinstatement period is also refused, with a red warning naming
+the termination date: three years for `THREE_YEAR_REINSTATEMENT_PLANCODES`, five
+years (`REINSTATEMENT_WINDOW_YEARS`) for every other UL. A full surrender's status
+badge reads
+**99 Full Surrender**. RERUN shows this same tab for status 97/99 ULs and starts the
+illustration from its quote (RERUN_MANUAL "RERUN reinstatement illustrations"). Changing or
 reloading the policy removes the tab and clears its previous quote.
 
 The header shows the last entry and a **Reinstatement date** drop-down of the
 policy's issue-day monthliversaries from six months before today through the
 next month (dates before the lapse or at maturity are left out), defaulted to
 the latest monthliversary on or before today. The lapse data and rates are
-loaded once per policy; choosing another date re-prices immediately. Three
-panels follow:
+loaded once per policy; choosing another date re-prices immediately. The screen
+then reads as a flow in two numbered sections:
+
+1. **Policy at Termination → Reinstatement Premium**: Values at Lapse, Monthly
+   Deduction and Reinstatement Premium side by side.
+2. **Policy After Reinstatement (premium applied)**: one full-width Skipped
+   Coverage Reinstatement panel whose three column pairs (code and date; values;
+   benefit dates and terminated months) line up under the panels above.
+
+The right-click copy text follows the same order. The panels:
 
 - **Values at Lapse**: lapse date, values-record date, account value, loan
   balance, surrender charge (at the lapse date), SNET (SafetyNet/MAP) expiry
   date and CCV benefit (type `A`) cease date, or N/A.
-- **Skipped Coverage Reinstatement** (under Values at Lapse; "does not apply if you
+- **Skipped Coverage Reinstatement** (section 2; "does not apply if you
   do a home office reinstatement"): the reinstatement code, values as of the
   reinstatement date, reinstatement premium (net,
   premium less load), approximate monthly deduction, approximate account value
@@ -364,17 +378,60 @@ panels follow:
   value less surrender charge and loan; account value and surrender value are bold), SNET expiry date, CCV benefit
   cease date and terminated months (monthliversaries between lapse and
   reinstatement). The code is read-only: it is the segment 66 reinstatement rule
-  (`LH_NON_TRD_POL.REN_RLE_CD`). Rule 3 pushes the SNET expiry out by the
-  terminated months; any other rule ends SNET and CCV at the termination date (an
-  SNET already expired earlier stays as is). CCV is always the termination date
-  when a CCV benefit exists.
-- **Monthly Deduction** on the reinstatement date: the deduction date, then base COI, rider COI and
+  (`LH_NON_TRD_POL.REN_RLE_CD`). For the IUL plans below the SNET result follows
+  the business requirements instead: IUL08 and GIUL21 end SNET at termination;
+  IUL14/19/21/23 lapsed inside the No-Lapse period restore it, extended by the
+  terminated months (otherwise it ends at termination). For every other plan rule 3
+  pushes the SNET expiry out by the terminated months and any other rule ends SNET
+  at the termination date (an SNET already expired earlier stays as is). CCV is
+  always the termination date when a CCV benefit exists. The net premium is the
+  premium less the load deducted when it is applied (GIUL21 deducts none).
+- **Monthly Deduction** the formula charges (the reinstatement date, or the lapse
+  date for IUL14/19/21/23 and GIUL21): the deduction date, then base COI, rider COI and
   benefit charges (COI), EPU, monthly fee and any account-value charge (fees),
   and the total.
-- **Reinstatement Premium**: account value, policy debt, surrender charge as
-  of the reinstatement date, 2 x COI, 2 x fees, subtotal
-  (surrender charge + debt + 2 x COI + 2 x fees - account value), premium load
-  and the reinstatement premium (subtotal + load).
+- **Reinstatement Premium**: account value, policy debt, surrender charge, the
+  two deductions' COI and fees, Percent of AV charge, subtotal with the formula as a
+  hint, premium load, premium with load, the No-Lapse Guarantee premium (or N/A)
+  and the quoted reinstatement premium.
+
+Reinstatement formulas by plancode (`polview/services/reinstatement_rules.py`;
+the IUL rules are S151972 *IUL Reinstatement Business Requirements* v2.0):
+
+| Plans | Reinstatement premium |
+| --- | --- |
+| Standard (all other ULs) | SC(REINDT) + debt + 2 x MD(REINDT) - AV(LD), plus load |
+| IUL08 `1U144600/700/800` (modified skipped coverage) | SC(REINDT) + MD(REINDT) + MD(REINDT + 1 month) + debt - AV(LD), plus load at the REINDT duration |
+| IUL14/19/21/23 `1U145500, 1U146400, 1U145800, 1U145600, 1U146500, 1U145900, 1U146800, 1U146900, 1U147500, 1U147800` | SC(LD) + 2 x MD(LD) + debt - AV(LD), plus load at the LD duration. Lapsed inside the No-Lapse period: the lesser of that and AccumMTP(LD) + withdrawals + debt + MTP(REINDT) - premiums paid (no load) |
+| GIUL21 `1U147400` | SC(LD) + 2 x MD(LD) + debt - AV(LD), no premium load (the contract omits it; honored and noted on the quote) |
+
+- Each MD includes the Percent of AV (PoAV) charge on the lapse account value (the
+  requirement's "PoAV based on AV as of LD - before MD"), shown on its own line for
+  the IUL formulas. CKAS checkout UE001742 confirms CyberLife charges it in both
+  deductions: expense $84.98 = 2 x ($41.50 EPU and fee + $0.99 PoAV). PoAV comes
+  from the plancode's PoAV table, so IUL23 and GIUL21 (no table) charge none, as
+  the requirements state.
+- IUL14+ and GIUL21 resume their charge schedules at durations reduced by the
+  months terminated, so their charges are the lapse charges. LD is the lapse date or
+  the last monthliversary before it (the S151972 workbook's definition): MD(LD) is
+  charged on that monthliversary; AV, loans and AccumMTP come from the last
+  monthliversary values record.
+- The No-Lapse period applies when the lapse date is before the later of the MAP
+  cease date and issue + the plan's safety-net years. AccumMTP(LD) is the values
+  record's accumulated MTP (the contract's MTPs due before grace plus two at the
+  start of grace). A lapse inside the period with no MTP or accumulated MTP is an
+  explicit error, never a zero premium. The extension uses the monthliversaries
+  between the TL date and the reinstatement date (CKAS checkout: lapse 06/16/2020,
+  reinstated 07/15/2023 extended MAP 37 months).
+
+Live read-only validation (October 27, 2026) against CyberLife's signed-off S151972
+CKAS checkout quotes (`CKAS Checkout (WIP).xlsx`): CKPR data reproduces them to the
+cent for IUL14 No-Lapse UE001742 $1,054.94, UE001550 $98.00, UIP77336 $41.68 and
+UNE02074 $141.43, and GIUL21 UE147970 $11,034.29. UE001742's later standard quote
+matches CyberLife's surrender charge ($2,640.00), expense ($84.98) and load rate, but
+not its higher COI, most likely the future-dated MD pricing the checkout's Conclusions
+sheet notes (and accepts as conservative) for GIUL21; SuiteView follows the
+requirement's MD(LD).
 
 `suiteview/polview/services/reinstatement.py` owns every value; the UI only
 lays them out. Rules:
@@ -384,7 +441,8 @@ lays them out. Rules:
   all lapsed ULs).
 - Lapse values are the last monthliversary values record (post-deduction AV,
   loans, SNET date). A `TL` amount that differs from that AV is noted.
-- Coverage is continuous: durations run from the original issue date. COI,
+- Durations run from the original issue date (the IUL14+ and GIUL21 lapse-date
+  charges are the duration-reduced schedule). COI,
   fees and surrender charges come from the illustration engine's
   `calculate_deduction` and `_calculate_surrender_charge`, so an
   anniversary-dated surrender takes the prior year's rate. COI uses the lapse
@@ -409,8 +467,9 @@ tests are in `tests/test_reinstatement.py`; native UI tests are in
 `tools/app/verify_reinstatement_tab.py --output-dir <directory>` prices an
 explicitly synthetic lapsed policy through the real service without database
 access. Supplying `--policy <number> --company <code> --region CKPR` instead
-checks a live quote read-only. Synthetic captures are not evidence of a live
-policy quote.
+checks a live quote read-only. In synthetic mode `--plancode <code>` selects the
+formula and `--in-no-lapse-period` puts the lapse inside the No-Lapse period.
+Synthetic captures are not evidence of a live policy quote.
 
 ### Coverage and benefit zero values
 

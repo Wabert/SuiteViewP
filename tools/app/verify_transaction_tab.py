@@ -63,13 +63,22 @@ def main() -> int:
                     )
                     for lo, hi in (panel.ranges[name],)
                 )
-                checks[f"section{number}_details_beside_reversals"] = (
-                    panel.txt_origin.y() == panel.txt_fund_id.y()
-                    > panel.ranges["gross"][0].geometry().bottom()
+                details = (panel.txt_origin, panel.txt_fund_id, panel.txt_acct_number)
+                checks[f"section{number}_details_column"] = (
+                    len({edit.x() for edit in details}) == 1
+                    and panel.txt_origin.x() == first.txt_origin.x()
+                    and panel.txt_origin.geometry().center().y()
+                    == panel.transaction_types.geometry().center().y()
+                    and panel.txt_fund_id.y() == panel.ranges["entry"][0].y()
+                    and panel.txt_acct_number.y() == panel.ranges["eff"][0].y()
                     and all(
-                        choices.geometry().right() < panel.txt_origin.x()
-                        and checkbox.y() <= panel.txt_origin.y() <= choices.geometry().bottom()
-                        for checkbox, choices in panel.reversal_filters.values()
+                        widget.geometry().right() < panel.txt_origin.x() - 60
+                        for widget in (
+                            panel.transaction_types,
+                            *(hi for _, hi in panel.ranges.values()),
+                            *panel.date_comparisons.values(),
+                            *(choices for _, choices in panel.reversal_filters.values()),
+                        )
                     )
                 )
                 checks[f"section{number}_text_fits"] = all(
@@ -82,7 +91,10 @@ def main() -> int:
                 checks[f"section{number}_inputs_fit"] = all(
                     panel.rect().contains(edit.geometry())
                     for pair in panel.ranges.values() for edit in pair
-                ) and panel.rect().contains(panel.txt_fund_id.geometry())
+                ) and all(
+                    panel.rect().contains(edit.geometry())
+                    for edit in (panel.txt_origin, panel.txt_fund_id, panel.txt_acct_number)
+                )
                 checks[f"section{number}_flags_fit"] = all(
                     panel.rect().contains(choices.geometry())
                     and choices.verticalScrollBar().maximum() == 0
@@ -113,6 +125,7 @@ def main() -> int:
             second.chk_eff_month.setChecked(True)
             second.chk_eff_day.setChecked(True)
             second.txt_fund_id.setText("F1, F2")
+            first.txt_acct_number.setText("1000001")
             reversal_check, reversal_list = first.reversal_filters["is_reversal"]
             reversal_check.setChecked(True)
             reversal_list.item(0).setSelected(True)
@@ -127,6 +140,12 @@ def main() -> int:
                 "NOT EXISTS (SELECT 1 FROM DB2TAB.FH_FIXED TR2" in sql
                 and "TR1.FCB0_REV_IND IN ('0')" in sql
                 and "TR2.FCB2_REV_APPL_IND IN ('1')" in sql
+            )
+            checks["acct_number_sql"] = (
+                "EXISTS (SELECT 1 FROM DB2TAB.FH_ACCTG ACCTG1" in sql
+                and "ACCTG1.SEQ_NO = TR1.SEQ_NO" in sql
+                and "ACCTG1.ACCTG_NBR IN ('1000001')" in sql
+                and "JOIN DB2TAB.FH_ACCTG" not in sql
             )
             saved = json.loads(json.dumps(window._cyberlife_query_object_state()))
             first.set_state({})

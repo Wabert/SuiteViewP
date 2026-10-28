@@ -50,7 +50,8 @@ def synthetic_basis(code="1", **policy_changes):
 
 
 def lapsed_policy(**changes):
-    values = dict(exists=True, product_type="UL", last_entry_code="Q", policy_number="SYNTHETIC")
+    values = dict(exists=True, product_type="UL", last_entry_code="Q", policy_number="SYNTHETIC",
+                  get_live_transactions=lambda _codes: [], terminate_date=None)
     values.update(changes)
     return SimpleNamespace(**values)
 
@@ -149,14 +150,48 @@ def test_lapse_values_deduction_and_premium_are_displayed(tab):
     assert deduction.text("total") == "24.50"
     premium = tab.premium_panel
     assert [premium.labels[key].text() for key in premium.values] == [
-        "Account value", "Policy debt", "Surrender charge", "2 \u00d7 COI", "2 \u00d7 Fees",
-        "Subtotal", "Premium load (5.00%)",
+        "Account value", "Policy debt", "Surrender charge (reinstatement date)", "2 \u00d7 COI",
+        "2 \u00d7 Fees", "Percent of AV charge", "Subtotal", "Premium load (5.00%)",
+        "Premium with load", "No-Lapse Guarantee premium",
     ]
     assert premium.text("surrender_charge") == "450.00"
     assert premium.text("subtotal") == "524.00"
     assert premium.text("premium_load") == "27.58"
+    assert premium.text("standard_premium") == "551.58"
+    assert premium.text("no_lapse_premium") == "N/A"
+    assert "2\u00d7COI" in tab.formula_hint.text()
     assert tab.premium_label.text() == "$551.58"
+    # Copyable: selectable, and right-click Copy puts the plain amount on the clipboard.
+    assert tab.premium_label.textInteractionFlags() & Qt.TextInteractionFlag.TextSelectableByMouse
+    assert tab._premium_copy_text() == "551.58"
     assert "02/15/2026" in tab.notes_label.text()
+
+
+def test_giul21_quote_shows_lapse_date_charges_and_the_no_load_note(tab, loader):
+    loader.side_effect = lambda *_a, **_k: synthetic_basis(plancode="1U147400")
+    tab.load_policy(lapsed_policy(), today=TODAY)
+    assert tab.deduction_panel.text("deduction_date") == "3/15/2026"
+    premium = tab.premium_panel
+    assert premium.labels["surrender_charge"].text() == "Surrender charge (lapse date)"
+    assert premium.text("surrender_charge") == "500.00"
+    assert premium.text("premium_load") == "0.00"
+    assert premium.labels["premium_load"].text() == "Premium load (none: GIUL21)"
+    assert tab.premium_label.text() == "$574.00"
+    assert tab.skipped_panel.text("net_premium") == "574.00"
+    assert "GIUL21" in tab.formula_hint.text()
+    assert "excludes the premium load" in tab.notes_label.text()
+
+
+def test_iul14_in_the_no_lapse_period_shows_the_lesser_premium(tab, loader):
+    loader.side_effect = lambda *_a, **_k: synthetic_basis(
+        plancode="1U145500", map_cease_date=date(2027, 3, 15), mtp=50.0, accumulated_mtp=12500.0)
+    tab.load_policy(lapsed_policy(), today=TODAY)
+    premium = tab.premium_panel
+    assert premium.text("standard_premium") == "604.22"
+    assert premium.text("no_lapse_premium") == "550.00"
+    assert tab.premium_label.text() == "$550.00"
+    assert tab.skipped_panel.text("snet_expiry") == "9/15/2027"
+    assert "No-Lapse premium is lower" in tab.notes_label.text()
 
 
 def test_choosing_another_monthliversary_reprices_without_reloading(tab, loader):
@@ -246,6 +281,33 @@ def test_code_three_from_segment_66_extends_snet_by_the_terminated_months(tab, l
     tab.load_policy(lapsed_policy(), today=TODAY)
     assert tab.skipped_panel.text("code") == "3"
     assert tab.skipped_panel.text("snet_expiry") == "9/15/2025"
+
+
+def test_screen_flows_from_termination_premium_to_after_reinstatement(tab, qtbot):
+    tab.resize(1200, 700)
+    tab.show()
+    qtbot.waitExposed(tab)
+    tab.load_policy(lapsed_policy(), today=TODAY)
+    top = (tab.lapse_panel, tab.deduction_panel, tab.premium_panel)
+    # Section 1: lapse values, the monthly deduction and the premium side by side, in that order.
+    assert len({panel.geometry().top() for panel in top}) == 1
+    assert [panel.geometry().left() for panel in top] == sorted(panel.geometry().left() for panel in top)
+    assert tab.termination_header.geometry().bottom() <= tab.lapse_panel.geometry().top()
+    # Section 2: the after-reinstatement values sit below, across the full width.
+    lowest = max(panel.geometry().bottom() for panel in top)
+    assert lowest <= tab.after_header.geometry().top() < tab.skipped_panel.geometry().top()
+    assert tab.skipped_panel.width() >= tab.premium_panel.geometry().right() - tab.lapse_panel.geometry().left()
+    # Its three column pairs sit under the three panels above (code/date, values, benefit dates).
+    columns = [grid.parentWidget() for grid in tab.skipped_panel._grids]
+    assert len(columns) == 3
+    for column, panel in zip(columns, top):
+        left = column.mapTo(tab, column.rect().topLeft()).x()
+        assert abs(left - (panel.geometry().left() + 10)) <= 4
+    assert "net_premium" in [k for k, v in tab.skipped_panel.values.items() if columns[1].isAncestorOf(v)]
+    text = tab.copy_text()
+    order = ["Values at Lapse", "Monthly Deduction", "Reinstatement Premium\n",
+             "Reinstatement premium: $", "After Reinstatement"]
+    assert [text.index(marker) for marker in order] == sorted(text.index(marker) for marker in order)
 
 
 def test_copy_text_contains_the_whole_quote(tab):

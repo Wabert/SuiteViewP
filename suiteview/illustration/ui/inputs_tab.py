@@ -349,6 +349,7 @@ class IllustrationInputsTab(QWidget):
         self._mode_inputs = {}
         self._default_input_state = None
         self._issue_load_error = ""
+        self._reinstatement_note = ""
         self._business_mode = is_business_mode()
         self._setup_ui()
         # ABR Quote (Options menu) locks every Input-tab control except the
@@ -467,6 +468,9 @@ class IllustrationInputsTab(QWidget):
         self.issue_conditions = IssueConditionsPanel(self)
         self.issue_conditions.changed.connect(self._on_issue_conditions_changed)
         self.input_tabs.addTab(self.issue_conditions, "At-Issue Conditions")
+        # At-Issue Conditions only applies to New Business - From Issue, so the
+        # tab shows only while that toggle is on (_set_issue_conditions_tab_visible).
+        self.input_tabs.setTabVisible(self.input_tabs.indexOf(self.issue_conditions), False)
         outer.addWidget(self.input_tabs, 1)
 
         self.mode_warning = QLabel("")
@@ -560,6 +564,17 @@ class IllustrationInputsTab(QWidget):
         self.input_tabs.setTabVisible(self._grid_inputs_tab_index, visible)
         if visible:
             self.input_tabs.setCurrentIndex(self._grid_inputs_tab_index)
+
+    def issue_conditions_tab_visible(self) -> bool:
+        return self.input_tabs.isTabVisible(self.input_tabs.indexOf(self.issue_conditions))
+
+    def _set_issue_conditions_tab_visible(self, visible: bool):
+        """Show At-Issue Conditions only while New Business - From Issue is on."""
+        index = self.input_tabs.indexOf(self.issue_conditions)
+        visible = visible and not self._business_mode
+        if not visible and self.input_tabs.currentIndex() == index:
+            self.input_tabs.setCurrentIndex(0)
+        self.input_tabs.setTabVisible(index, visible)
 
     def _build_valuation_banner(self):
         """Compact date strip: valuation date, monthliversary day, first forecast month.
@@ -1400,6 +1415,8 @@ class IllustrationInputsTab(QWidget):
         with muted_signals(self.run_from_issue_btn):
             self.run_from_issue_btn.setChecked(False)
         self._issue_load_error = ""
+        self._reinstatement_note = ""
+        self.dynamic_panel.set_lumpsum_note(None)
         try:
             self.issue_conditions.load_policy(policy)
         except ValueError as exc:
@@ -1407,6 +1424,7 @@ class IllustrationInputsTab(QWidget):
             self.issue_conditions.assumptions.setText(str(exc))
             logger.warning("Issue conditions unavailable: %s", exc)
         self.issue_conditions.set_issue_mode(False)
+        self._set_issue_conditions_tab_visible(False)
         self._issue_date = policy_attr(policy, "issue_date", None)
         self._maturity_date = self._maturity_date_from_policy(policy)
         if self._maturity_date is not None:
@@ -1474,6 +1492,8 @@ class IllustrationInputsTab(QWidget):
             "NEW BUSINESS - FROM ISSUE" if enabled else
             "Inforce | New Business - From Issue")
         self.issue_conditions.set_issue_mode(enabled)
+        self._set_issue_conditions_tab_visible(enabled)
+        self._refresh_reinstatement_note()
         bg = ISSUE_BLUE_BG if enabled else PURPLE_BG
         self.setStyleSheet(f"background-color: {bg};")
         self.input_tabs.setStyleSheet(
@@ -1829,6 +1849,49 @@ class IllustrationInputsTab(QWidget):
 
     def set_lumpsum_amount(self, value: Optional[float]):
         self.dynamic_panel.set_lumpsum_amount(value)
+
+    def set_reinstatement_lumpsum(self, premium: Optional[float], reinstatement_date: Optional[date]):
+        """Prefill the Lump Sum with the reinstatement premium and say so beside it.
+
+        ``None`` for both clears the note and leaves the Lump Sum alone. The note
+        is hidden in New Business - From Issue, which does not reinstate.
+        """
+        self._reinstatement_note = (
+            f"This is the Premium needed to reinstate on {format_date(reinstatement_date)}"
+            if reinstatement_date is not None else "")
+        if premium is not None:
+            self.dynamic_panel.lumpsum_to_next_check.setChecked(False)
+            self.dynamic_panel.set_lumpsum_amount(premium)
+        self._refresh_reinstatement_note()
+
+    def reinstatement_note(self) -> str:
+        return self._reinstatement_note
+
+    def _refresh_reinstatement_note(self):
+        self.dynamic_panel.set_lumpsum_note(
+            None if self.run_from_issue_enabled() else self._reinstatement_note or None)
+
+    def reseat_policy_basis(self, policy, *, has_shadow: bool = False,
+                            shadow_ceased: bool = False) -> list[str]:
+        """Load a new starting basis for the same policy, keeping the Inforce inputs.
+
+        Used when a reinstatement illustration's reinstatement date changes. New
+        Business - From Issue and Edit Record describe the previous basis, so they
+        are turned off (and reported) first.
+        """
+        warnings: list[str] = []
+        if self.run_from_issue_enabled():
+            self.run_from_issue_btn.setChecked(False)
+            warnings.append(
+                "New Business - From Issue was turned off: the starting basis changed.")
+        if self._rollback_overrides is not None:
+            self.set_value_rollback(None)
+            warnings.append("Edit Record values were cleared: the starting basis changed.")
+        state = self._capture_active_case_inputs()
+        self.load_data_from_policy(policy, has_shadow=has_shadow, shadow_ceased=shadow_ceased)
+        warnings.extend(self._apply_active_case_inputs(state))
+        self._show_mode_warnings(warnings)
+        return warnings
 
     def level_premium_active(self) -> bool:
         return self.dynamic_panel.active_level_premium_type() is not None

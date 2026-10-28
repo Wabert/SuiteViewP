@@ -10,7 +10,7 @@ import logging
 from datetime import date
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel,
     QPushButton, QSizePolicy, QVBoxLayout, QWidget,
@@ -21,6 +21,7 @@ from ...services.reinstatement import (
     load_reinstatement_basis,
     reinstatement_eligibility,
 )
+from ...services.reinstatement_rules import FORMULA_DISPLAY, ReinstatementFormula
 from ..formatting import format_currency, format_date
 from ..styles import (
     GOLD_DARK, GOLD_LIGHT, GRAY_DARK, GRAY_MID, GRAY_TEXT, GREEN_DARK, GREEN_PRIMARY,
@@ -68,21 +69,56 @@ def _rule(double: bool = False) -> QFrame:
     return line
 
 
+_PANEL_MARGIN = 10
+_PANEL_SPACING = 8
+# Column pairs inside a wide panel line up with the side-by-side panels above it.
+_COLUMN_GAP = 2 * _PANEL_MARGIN + _PANEL_SPACING
+
+
+def _section_header(text: str) -> QLabel:
+    """A flow-step heading separating the termination and after-reinstatement sections."""
+    label = QLabel(text)
+    label.setStyleSheet(
+        f"font-size: 12px; font-weight: bold; color: {GREEN_DARK}; background: transparent;"
+        f" border: none; border-bottom: 2px solid {GOLD_DARK}; padding: 0 2px 2px 2px;")
+    return label
+
+
 class LedgerPanel(QGroupBox):
-    """A titled two-column label/amount list with subtotal rules."""
+    """A titled label/amount list with subtotal rules.
+
+    Rows run top to bottom in one label/amount column pair; ``add_column_break``
+    starts another equal-width pair to the right so a wide panel can lay its rows
+    side by side.
+    """
 
     def __init__(self, title: str, parent=None):
         super().__init__(title, parent)
         self.setStyleSheet(POLICY_INFO_FRAME_STYLE)
-        self._grid = QGridLayout(self)
-        self._grid.setContentsMargins(10, 18, 10, 8)
-        self._grid.setHorizontalSpacing(12)
-        self._grid.setVerticalSpacing(3)
-        self._grid.setColumnStretch(0, 1)
-        self._row = 0
+        self._columns = QHBoxLayout(self)
+        self._columns.setContentsMargins(_PANEL_MARGIN, 18, _PANEL_MARGIN, 8)
+        self._columns.setSpacing(_COLUMN_GAP)
+        self._grids: list[QGridLayout] = []
         self.values: dict[str, CopyableLabel] = {}
         self.labels: dict[str, QLabel] = {}
         self._copy_provider = None
+        self.add_column_break()
+
+    def add_column_break(self) -> None:
+        """Start a new label/amount column pair to the right."""
+        column = QWidget()
+        column.setStyleSheet("background: transparent;")
+        # Share width by stretch alone (not content hints) so column pairs stay equal.
+        column.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        grid = QGridLayout(column)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(3)
+        grid.setColumnStretch(0, 1)
+        self._columns.addWidget(column, 1)
+        self._grids.append(grid)
+        self._grid = grid
+        self._row = 0
 
     def add_row(self, key: str, label: str, *, total: bool = False, tooltip: str = "") -> CopyableLabel:
         name = QLabel(label)
@@ -126,7 +162,8 @@ class LedgerPanel(QGroupBox):
         self._row += 1
 
     def finish(self) -> None:
-        self._grid.setRowStretch(self._row, 1)
+        for grid in self._grids:
+            grid.setRowStretch(grid.rowCount(), 1)
 
     def set_copy_provider(self, provider) -> None:
         self._copy_provider = provider
@@ -151,6 +188,9 @@ def _date_or_na(value) -> str:
 
 
 class ReinstatementTab(QWidget):
+    # The displayed quote changed (re-priced, or became unavailable); read ``quote``.
+    quote_changed = pyqtSignal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._policy: PolicyInformation | None = None
@@ -162,24 +202,29 @@ class ReinstatementTab(QWidget):
         layout.setSpacing(8)
         layout.addWidget(self._build_header())
 
-        panels = QHBoxLayout()
-        panels.setSpacing(8)
         self.lapse_panel = self._build_lapse_panel()
         self.skipped_panel = self._build_skipped_panel()
         self.deduction_panel = self._build_deduction_panel()
         self.premium_panel = self._build_premium_panel()
-        left = QVBoxLayout()
-        left.setSpacing(8)
-        left.addWidget(self.lapse_panel)
-        left.addWidget(self.skipped_panel)
-        left.addStretch(1)
-        panels.addLayout(left, 1)
         for panel in (self.lapse_panel, self.skipped_panel, self.deduction_panel, self.premium_panel):
             panel.set_copy_provider(self.copy_text)
             panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        panels.addWidget(self.deduction_panel, 1, Qt.AlignmentFlag.AlignTop)
-        panels.addWidget(self.premium_panel, 1, Qt.AlignmentFlag.AlignTop)
-        layout.addLayout(panels)
+
+        # Flow: the policy at termination and the premium it takes, then the policy once it is applied.
+        self.termination_header = _section_header(
+            "1 \u00b7 Policy at Termination \u2192 Reinstatement Premium")
+        layout.addWidget(self.termination_header)
+        calculation = QHBoxLayout()
+        calculation.setSpacing(_PANEL_SPACING)
+        for panel in (self.lapse_panel, self.deduction_panel, self.premium_panel):
+            calculation.addWidget(panel, 1, Qt.AlignmentFlag.AlignTop)
+        layout.addLayout(calculation)
+
+        self.after_header = _section_header(
+            "2 \u00b7 Policy After Reinstatement (premium applied)")
+        layout.addSpacing(4)
+        layout.addWidget(self.after_header)
+        layout.addWidget(self.skipped_panel)
 
         self.notes_label = QLabel()
         self.notes_label.setWordWrap(True)
@@ -247,9 +292,10 @@ class ReinstatementTab(QWidget):
                               "at the termination date.")
         panel.add_rule()
         panel.add_row("values_date", "Values as of Reinstatement Date")
-        panel.add_rule()
+        panel.add_column_break()
         panel.add_row("net_premium", "Reinstatement premium (net)",
-                      tooltip="Reinstatement premium less the premium load")
+                      tooltip="Reinstatement premium less the premium load deducted when it is "
+                              "applied (GIUL21: no load is deducted)")
         panel.add_row("monthly_deduction", "Approx monthly deduction",
                       tooltip="The monthly deduction on the reinstatement date")
         panel.add_row("account_value", "Approx account value (after MD)", total=True,
@@ -258,9 +304,11 @@ class ReinstatementTab(QWidget):
         panel.add_row("surrender_charge", "Surrender charge")
         panel.add_row("surrender_value", "Surrender value", total=True,
                       tooltip="Approx account value less surrender charge and loan balance")
-        panel.add_rule()
+        panel.add_column_break()
         panel.add_row("snet_expiry", "SNET expiry date",
-                      tooltip="Code 3: lapse SNET date plus the terminated months. Other codes: termination date")
+                      tooltip="IUL08 and GIUL21: termination date. IUL14/19/21/23 lapsed in the "
+                              "No-Lapse period: No-Lapse expiry plus the terminated months. Other "
+                              "plans: code 3 adds the terminated months; other codes end at termination")
         panel.add_row("ccv_cease", "CCV benefit cease date",
                       tooltip="The termination date when a CCV benefit exists")
         panel.add_row("terminated_months", "Terminated months")
@@ -291,17 +339,26 @@ class ReinstatementTab(QWidget):
         panel = LedgerPanel("Reinstatement Premium")
         panel.add_row("account_value", "Account value")
         panel.add_row("policy_debt", "Policy debt")
-        panel.add_row(
-            "surrender_charge", "Surrender charge",
-            tooltip="As of the reinstatement date, with durations from the policy issue date")
+        panel.add_row("surrender_charge", "Surrender charge")
         panel.add_row("coi_x2", "2 \u00d7 COI", tooltip="Base, rider and benefit COI charges")
-        panel.add_row("fees_x2", "2 \u00d7 Fees", tooltip="EPU, monthly fee and account value charge")
+        panel.add_row("fees_x2", "2 \u00d7 Fees")
+        panel.add_row("poav_charge", "Percent of AV charge",
+                      tooltip="Percent of Account Value charge on the lapse account value, in "
+                              "each monthly deduction charged")
         panel.add_rule()
         panel.add_row("subtotal", "Subtotal", total=True)
-        panel.add_hint("Surrender charge + policy debt + 2\u00d7COI + 2\u00d7fees \u2212 account value")
+        self.formula_hint = panel.add_hint("")
         panel.add_row("premium_load", "Premium load")
+        panel.add_row("standard_premium", "Premium with load", total=True)
+        panel.add_row("no_lapse_premium", "No-Lapse Guarantee premium",
+                      tooltip="IUL14/19/21/23 lapsed inside the No-Lapse period: AccumMTP at lapse "
+                              "+ withdrawals + policy debt + MTP - premiums paid (no load). The "
+                              "lesser of this and the premium with load is quoted.")
         panel.add_rule(double=True)
-        self.premium_label = QLabel()
+        # Copyable: select it, or right-click > Copy for the plain amount (no $ or commas).
+        self.premium_label = CopyableLabel("", copy_text_provider=self._premium_copy_text)
+        self.premium_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.premium_label.setCursor(Qt.CursorShape.IBeamCursor)
         self.premium_label.setStyleSheet(_GRAND_STYLE)
         grand = QWidget()
         grand.setStyleSheet("background: transparent;")
@@ -318,6 +375,22 @@ class ReinstatementTab(QWidget):
 
     # ── state ───────────────────────────────────────────────────────────────
 
+    @property
+    def basis(self):
+        """The loaded :class:`ReinstatementBasis`, or None."""
+        return self._basis
+
+    @property
+    def quote(self):
+        """The displayed :class:`ReinstatementQuote`, or None when unavailable."""
+        return self._quote
+
+    def _premium_copy_text(self) -> str:
+        """The reinstatement premium as a plain amount for pasting (e.g. ``1981.86``)."""
+        if self._quote is None:
+            return self.premium_label.text()
+        return f"{self._quote.premium.premium:.2f}"
+
     def clear(self):
         self._policy = None
         self._basis = None
@@ -333,6 +406,7 @@ class ReinstatementTab(QWidget):
         self.deduction_panel.clear_values()
         self.skipped_panel.clear_values()
         self.premium_panel.clear_values()
+        self.formula_hint.clear()
         self.premium_label.clear()
         self.notes_label.clear()
 
@@ -352,17 +426,19 @@ class ReinstatementTab(QWidget):
         today = today or date.today()
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            eligibility = reinstatement_eligibility(policy)
+            eligibility = reinstatement_eligibility(policy, today)
             self.entry_label.setText(
                 f"Last entry: {eligibility.last_entry_code or '-'} - {eligibility.last_entry_description}")
             if not eligibility.eligible:
                 self._set_status(eligibility.message, error=True)
+                self.quote_changed.emit()
                 return
             self._set_status("Loading lapse values and rates...")
             self._basis = load_reinstatement_basis(policy, today=today)
         except ReinstatementError as exc:
             logger.warning("Reinstatement basis unavailable: %s", exc, exc_info=True)
             self._set_status(f"Unable to quote reinstatement: {exc}", error=True)
+            self.quote_changed.emit()
             return
         finally:
             QApplication.restoreOverrideCursor()
@@ -404,11 +480,13 @@ class ReinstatementTab(QWidget):
             logger.warning("Reinstatement quote unavailable: %s", exc, exc_info=True)
             self.premium_label.setText("Unavailable")
             self._set_status(f"Unable to quote reinstatement: {exc}", error=True)
+            self.quote_changed.emit()
             return
         self._show_quote(quote)
         self._quote = quote
         self._set_status(f"Lapsed {format_date(self._basis.lapse.lapse_date)}. "
                          f"Quote for reinstatement on {format_date(when)}.")
+        self.quote_changed.emit()
 
     def _show_quote(self, quote):
         d = quote.deduction
@@ -422,9 +500,11 @@ class ReinstatementTab(QWidget):
         p = quote.premium
         panel = self.premium_panel
         for key in ("account_value", "policy_debt", "surrender_charge", "coi_x2", "fees_x2",
-                    "subtotal", "premium_load"):
+                    "poav_charge", "subtotal", "premium_load", "standard_premium"):
             panel.set(key, _amount(getattr(p, key)))
-        panel.labels["premium_load"].setText(f"Premium load ({p.load_description})")
+        panel.set("no_lapse_premium",
+                  _amount(p.no_lapse.premium) if p.no_lapse is not None else NOT_APPLICABLE)
+        self._label_premium_rows(p, quote)
         self.premium_label.setText(format_currency(p.premium, prefix="$"))
         after = self._basis.values_after_reinstatement(quote)
         skipped = self.skipped_panel
@@ -441,6 +521,24 @@ class ReinstatementTab(QWidget):
         skipped.set("terminated_months", str(after.terminated_months))
         self.notes_label.setText("\n".join(f"\u2022 {note}" for note in quote.notes))
 
+    def _label_premium_rows(self, p, quote):
+        display = FORMULA_DISPLAY[ReinstatementFormula(p.formula)]
+        labels = self.premium_panel.labels
+        labels["surrender_charge"].setText(display.surrender)
+        labels["coi_x2"].setText(display.coi)
+        labels["fees_x2"].setText(display.fees)
+        labels["premium_load"].setText(f"Premium load ({p.load_description})")
+        self.formula_hint.setText(display.hint)
+        fees_tip = ("EPU, monthly fee and account value charge"
+                    if p.formula == ReinstatementFormula.STANDARD.value
+                    else "EPU and monthly fee (the Percent of AV charge is shown below)")
+        labels["fees_x2"].setToolTip(fees_tip)
+        self.premium_panel.values["fees_x2"].setToolTip(fees_tip)
+        deduction_tip = ("Charges as of the lapse date: these plans resume their charge "
+                         "schedules at durations reduced by the months terminated"
+                         if quote.deduction.deduction_date != quote.reinstatement_date else "")
+        self.deduction_panel.labels["deduction_date"].setToolTip(deduction_tip)
+
     def copy_text(self) -> str:
         """Plain-text quote for the clipboard (right-click Copy on any value)."""
         if self._basis is None:
@@ -448,13 +546,14 @@ class ReinstatementTab(QWidget):
         lines = [f"UL Reinstatement Quote - {getattr(self._policy, 'policy_number', '')}".rstrip(" -")]
         sections = [("Values at Lapse", self.lapse_panel)]
         if self._quote is not None:
-            sections += [("Skipped Coverage Reinstatement", self.skipped_panel),
-                         ("Monthly Deduction", self.deduction_panel),
-                         ("Reinstatement Premium", self.premium_panel)]
+            sections += [("Monthly Deduction", self.deduction_panel),
+                         ("Reinstatement Premium", self.premium_panel),
+                         ("After Reinstatement - Skipped Coverage Reinstatement", self.skipped_panel)]
         for title, panel in sections:
             lines += ["", title]
             lines += [f"  {panel.labels[key].text()}: {panel.text(key)}" for key in panel.values]
+            if panel is self.premium_panel:
+                lines.append(f"  Reinstatement premium: {self.premium_label.text()}")
         if self._quote is not None:
-            lines.append(f"  Reinstatement premium: {self.premium_label.text()}")
             lines += ["", *(f"- {note}" for note in self._quote.notes)]
         return "\n".join(lines)

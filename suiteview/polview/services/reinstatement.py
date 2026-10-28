@@ -1,20 +1,29 @@
-"""Read-only UL reinstatement quotes (continuous coverage).
+"""Read-only UL reinstatement quotes.
 
-A quote shows the policy's values at lapse, the monthly deduction on the
-reinstatement date and the reinstatement premium::
+A quote shows the policy's values at lapse, the monthly deduction its formula
+uses and the reinstatement premium. The standard UL formula (continuous
+coverage, durations from the original issue date) is::
 
     subtotal              = surrender charge + policy debt + 2 x COI + 2 x fees
                             - account value
     reinstatement premium = subtotal + premium load
 
+IUL08, IUL14/19/21/23 and GIUL21 follow the S151972 IUL reinstatement business
+requirements instead; ``reinstatement_rules`` maps plancodes to formulas and
+documents each one. In short: IUL08 charges the reinstatement-date and next
+month's deductions; IUL14+ and GIUL21 use lapse-date charges (their durations
+resume reduced by the months terminated); IUL14+ lapsed inside the No-Lapse
+period pay the lesser of that premium and the No-Lapse Guarantee premium; GIUL21
+carries no premium load (a contract flaw that is honored, noted on the quote).
+
 COI is the base coverage COI plus rider and benefit charges. Fees are the EPU,
 the monthly policy fee and any account-value charge. Charges, surrender charges
-and premium loads come from the canonical illustration engine. Durations run
-from the original issue date because coverage is continuous: nothing restarts
-on reinstatement.
+and premium loads come from the canonical illustration engine.
 
 The lapse date is CyberLife's TL (termination - lapse) or SI (internal surrender)
-transaction, falling back to PLN_TMN_DT. A full surrender (SF) is not reinstatable.
+transaction, falling back to PLN_TMN_DT. A full surrender (SF) is not reinstatable,
+and neither is a termination older than the plancode's reinstatement period: three
+years for ``THREE_YEAR_REINSTATEMENT_PLANCODES``, five years for every other UL.
 
 Lapse values are the last monthliversary values record.
 """
@@ -40,6 +49,7 @@ from suiteview.illustration.core.monthly_deduction import calculate_deduction
 from suiteview.illustration.core.premium_handler import (
     gross_up_for_premium_load,
     premium_load_rates,
+    split_premium_load,
 )
 from suiteview.illustration.core.rate_loader import IllustrationRates, RateLookupError
 from suiteview.illustration.core.skipped_coverage import skipped_monthliversaries
@@ -48,10 +58,18 @@ from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 from suiteview.polview.models.cl_polrec.policy_translations import LAST_ENTRY_CODES
 from suiteview.polview.models.policy_sections.lookup import policy_attr
+from suiteview.polview.services.reinstatement_rules import (
+    FORMULA_LABELS,
+    ReinstatementFormula,
+    normalized_plancode,
+    reinstatement_formula,
+    reinstatement_window_years,
+)
 
 LAPSE_TRANSACTION_CODE = "TL"
 INTERNAL_SURRENDER_CODE = "SI"
 FULL_SURRENDER_CODE = "SF"
+SURRENDER_LAST_ENTRY_CODE = "P"
 SKIPPED_COVERAGE_CODE = "3"
 CCV_BENEFIT_TYPE = "A"
 _CENT = Decimal("0.01")
@@ -108,24 +126,66 @@ class MonthlyDeduction:
 
 
 @dataclass(frozen=True)
+class NoLapsePremium:
+    """IUL14/19/21/23 No-Lapse Guarantee reinstatement premium (no premium load).
+
+    AccumMTP(LD) + withdrawals + policy debt + MTP(REINDT) - premiums paid, floored
+    at zero. AccumMTP(LD) is the accumulated MTP on the last monthliversary values
+    record before the lapse: the contract's MTPs due before grace plus two MTPs at
+    the start of grace.
+    """
+
+    accumulated_mtp: Decimal
+    withdrawals: Decimal
+    policy_debt: Decimal
+    monthly_mtp: Decimal
+    premiums_paid: Decimal
+    premium: Decimal
+    no_lapse_expiry: date
+
+
+@dataclass(frozen=True)
 class ReinstatementPremium:
+    """The reinstatement premium build-up.
+
+    ``coi_x2`` and ``fees_x2`` are the two monthly deductions the formula charges
+    (IUL08: the reinstatement date and the next month). For the IUL formulas the
+    Percent of AV charge in those deductions (on the lapse account value) is shown
+    apart as ``poav_charge``; the standard formula keeps it inside ``fees_x2``.
+    ``premium_load`` is the load in ``standard_premium``.
+    ``premium`` is the quote: the standard premium, or the lesser No-Lapse premium.
+    ``net_premium`` is what reaches the account value once the load is deducted.
+    """
+
+    formula: str
     account_value: Decimal
     policy_debt: Decimal
     surrender_charge: Decimal
     coi_x2: Decimal
     fees_x2: Decimal
+    poav_charge: Decimal
     subtotal: Decimal
     premium_load: Decimal
+    standard_premium: Decimal
+    no_lapse: NoLapsePremium | None
     premium: Decimal
+    net_premium: Decimal
     load_description: str
+
+    @property
+    def uses_no_lapse_premium(self) -> bool:
+        return self.no_lapse is not None and self.premium < self.standard_premium
 
 
 @dataclass(frozen=True)
 class ReinstatementQuote:
     reinstatement_date: date
+    # The monthly deduction the formula charges (lapse date for IUL14+/GIUL21).
     deduction: MonthlyDeduction
     premium: ReinstatementPremium
     notes: tuple[str, ...]
+    # IUL08 only: the deduction one month after the reinstatement date.
+    next_deduction: MonthlyDeduction | None = None
 
 
 @dataclass(frozen=True)
@@ -215,15 +275,30 @@ def _terminating_surrender(policy) -> str:
     return surrenders[-1].trans_code if surrenders else ""
 
 
-def reinstatement_eligibility(policy) -> ReinstatementEligibility:
-    """Eligibility: a lapse (Q) or an internal surrender (P ending in SI), never an SF."""
+def is_full_surrender(policy) -> bool:
+    """Terminated by a full surrender: last entry P (surrender) not ending in an internal
+    surrender (SI). A full surrender is never reinstatable."""
+    code = str(policy_attr(policy, "last_entry_code", "") or "").strip().upper()
+    return code == SURRENDER_LAST_ENTRY_CODE and _terminating_surrender(policy) != INTERNAL_SURRENDER_CODE
+
+
+def reinstatement_window_closed(lapse_date: date | None, today: date, years: int) -> bool:
+    """True when the termination is more than ``years`` before ``today``."""
+    return (lapse_date is not None
+            and today > lapse_date + relativedelta(years=years))
+
+
+def reinstatement_eligibility(policy, today: date | None = None) -> ReinstatementEligibility:
+    """Eligibility: a lapse (Q) or an internal surrender (P ending in SI), never an SF,
+    terminated no more than the plancode's reinstatement period before ``today``."""
+    today = today or date.today()
     try:
         code = str(policy_attr(policy, "last_entry_code", "") or "").strip().upper()
         message = ""
         internal = False
         if not is_ul_policy(policy):
             message = "Currently reinstatement quotes are only available for ULs"
-        elif code == "P":
+        elif code == SURRENDER_LAST_ENTRY_CODE:
             internal = _terminating_surrender(policy) == INTERNAL_SURRENDER_CODE
             if not internal:
                 message = ("A full surrender (SF) cannot be reinstated; only a lapse or an "
@@ -231,6 +306,14 @@ def reinstatement_eligibility(policy) -> ReinstatementEligibility:
         elif code != "Q":
             message = ("Only a lapse (Q) or an internal surrender (P ending in SI) can be "
                        "reinstated; free-look and other terminations are not eligible.")
+        if not message:
+            lapse_date, _amount = find_lapse_date(policy)
+            years = reinstatement_window_years(policy_attr(policy, "base_plancode", ""))
+            if reinstatement_window_closed(lapse_date, today, years):
+                message = (
+                    f"Terminated {lapse_date:%m/%d/%Y}, more than "
+                    f"{years} years ago: the policy is past the "
+                    "reinstatement period and cannot be reinstated.")
     except (DB2ConnectionError, RatesError, TypeError) as exc:
         raise ReinstatementError(f"Cannot read reinstatement eligibility: {exc}") from exc
     description = LAST_ENTRY_CODES.get(code, f"Unknown ({code})") if code else "Not available"
@@ -326,38 +409,47 @@ class ReinstatementBasis:
         """Skipped-coverage values once the quoted premium is paid (mirrors Values at Lapse).
 
         The approximate account value is the lapse value plus the net premium (premium less
-        load) less one monthly deduction. The reinstatement rule is the policy's segment 66
-        code (``REN_RLE_CD``): rule 3 pushes the SNET expiry out by the months the policy
-        was terminated and leaves the CCV benefit ceasing at termination. Any other rule
-        ends both at the termination date.
+        the load deducted on application) less one monthly deduction. SNET follows the
+        product's reinstatement rule: IUL08 and GIUL21 end it at termination; IUL14+
+        lapsed inside the No-Lapse period extend it by the months terminated. Other plans
+        use the policy's segment 66 code (``REN_RLE_CD``): rule 3 pushes the SNET expiry
+        out by the terminated months; any other rule ends it at termination. A CCV
+        benefit always ceases at termination.
         """
         code = self.reinstatement_code
         lapse, p = self.lapse, quote.premium
         terminated = lapse.lapse_date
         months = skipped_monthliversaries(self.policy.issue_date, terminated, quote.reinstatement_date)
         snet = lapse.snet_expiry_date
-        if snet is not None:
-            snet = snet + relativedelta(months=months) if code == SKIPPED_COVERAGE_CODE else min(snet, terminated)
-        net_premium = p.premium - p.premium_load
+        formula = ReinstatementFormula(p.formula)
+        if formula is ReinstatementFormula.NO_LAPSE_IUL:
+            snet = (p.no_lapse.no_lapse_expiry + relativedelta(months=months)
+                    if p.no_lapse is not None
+                    else (min(snet, terminated) if snet is not None else None))
+        elif snet is not None:
+            extend = (formula is ReinstatementFormula.STANDARD
+                      and code == SKIPPED_COVERAGE_CODE)
+            snet = snet + relativedelta(months=months) if extend else min(snet, terminated)
         deduction = quote.deduction.total
-        account_value = lapse.account_value + net_premium - deduction
+        account_value = lapse.account_value + p.net_premium - deduction
         return ValuesAfterReinstatement(
-            quote.reinstatement_date, code, months, net_premium, deduction,
+            quote.reinstatement_date, code, months, p.net_premium, deduction,
             account_value, lapse.loan_balance, p.surrender_charge,
             account_value - p.surrender_charge - lapse.loan_balance,
             snet, terminated if lapse.has_ccv else None)
 
-    def _quote(self, when: date) -> ReinstatementQuote:
+    def _deduction(self, on: date) -> MonthlyDeduction:
+        """The engine's monthly deduction on ``on`` (durations from issue, lapse AV)."""
         p = self.policy
-        year, month, age = _counters(p, when)
+        year, month, age = _counters(p, on)
         ded = calculate_deduction(
             float(self.lapse.account_value), p, self.config, self.rates, year, age,
             p.premiums_paid_to_date, monthly_mtp=truncate_monthly_mtp(p.mtp),
-            projection_date=when, bln_round_charge=True,
-            corridor_rate=cvat_corridor_rate(self.cvat, when),
+            projection_date=on, bln_round_charge=True,
+            corridor_rate=cvat_corridor_rate(self.cvat, on),
         )
         deduction = MonthlyDeduction(
-            when, year, month, age,
+            on, year, month, age,
             base_coi=_money(ded.coi_charge, "Base COI"),
             rider_coi=_money(ded.rider_charges, "Rider COI"),
             benefit_charges=_money(ded.benefit_charges, "Benefit charges"),
@@ -367,38 +459,187 @@ class ReinstatementBasis:
         )
         if abs(deduction.total - _money(ded.total_deduction, "Monthly deduction")) > _CENT:
             raise ReinstatementError("Monthly deduction components do not reconcile to the total.")
-        premium = self._premium(when, year, deduction)
+        return deduction
+
+    @property
+    def formula(self) -> ReinstatementFormula:
+        return reinstatement_formula(self.policy.plancode)
+
+    def no_lapse_expiry(self) -> date | None:
+        """The No-Lapse Guarantee expiry when the lapse fell inside it, else None.
+
+        The later of the policy's MAP (SafetyNet) cease date and the plan's safety-net
+        period from issue, so neither a prior reinstatement's extension nor a cease date
+        moved to the lapse date hides the guarantee.
+        """
+        p = self.policy
+        candidates = [d for d in (p.map_cease_date,) if d is not None]
+        years = self.config.safety_net_years(p.issue_age)
+        if years > 0:
+            candidates.append(p.issue_date + relativedelta(years=years))
+        expiry = max(candidates, default=None)
+        return expiry if expiry is not None and self.lapse.lapse_date < expiry else None
+
+    def _quote(self, when: date) -> ReinstatementQuote:
+        p = self.policy
+        formula = self.formula
+        lapse_date = self.lapse.lapse_date
+        at_lapse = formula in (ReinstatementFormula.NO_LAPSE_IUL, ReinstatementFormula.GIUL21)
+        # LD for these formulas is the lapse date or the last monthliversary before it.
+        lapse_mv = latest_monthliversary(p.issue_date, lapse_date)
+        deduction = self._deduction(lapse_mv if at_lapse else when)
+        next_deduction = None
+        if formula is ReinstatementFormula.IUL08:
+            next_deduction = self._deduction(
+                p.issue_date + relativedelta(months=_completed_months(p.issue_date, when) + 1))
+        premium = self._premium(when, formula, deduction, next_deduction)
         notes = list(self.notes)
+        plan = normalized_plancode(p.plancode)
+        if formula is not ReinstatementFormula.STANDARD:
+            notes.append(_FORMULA_NOTES[formula].format(
+                plan=plan, label=FORMULA_LABELS[formula], lapse=lapse_mv))
+        if premium.no_lapse is not None:
+            nl = premium.no_lapse
+            chosen = ("the No-Lapse premium is lower and is quoted"
+                      if premium.uses_no_lapse_premium else
+                      "the standard premium is lower and is quoted")
+            notes.append(
+                f"Lapsed inside the No-Lapse Guarantee period (expires "
+                f"{nl.no_lapse_expiry:%m/%d/%Y}): the premium is the lesser of the standard "
+                f"premium (${premium.standard_premium:,.2f}) and the No-Lapse premium "
+                f"(${nl.premium:,.2f}) = AccumMTP ${nl.accumulated_mtp:,.2f} + withdrawals "
+                f"${nl.withdrawals:,.2f} + policy debt ${nl.policy_debt:,.2f} + MTP "
+                f"${nl.monthly_mtp:,.2f} - premiums paid ${nl.premiums_paid:,.2f}; {chosen}.")
         if when != latest_monthliversary(p.issue_date, when):
+            year, month, _age = _counters(p, when)
             notes.append(
                 f"{when:%m/%d/%Y} is not a monthliversary; charges use policy year {year}, "
                 f"month {month}.")
         if premium.subtotal <= 0:
             notes.append("The account value covers the requirement; no reinstatement premium is due.")
-        return ReinstatementQuote(when, deduction, premium, tuple(notes))
+        return ReinstatementQuote(when, deduction, premium, tuple(notes), next_deduction)
 
-    def _premium(self, when: date, year: int, deduction: MonthlyDeduction) -> ReinstatementPremium:
+    def _premium(
+        self, when: date, formula: ReinstatementFormula, deduction: MonthlyDeduction,
+        next_deduction: MonthlyDeduction | None,
+    ) -> ReinstatementPremium:
         p = self.policy
         lapse = self.lapse
-        surrender = _surrender_charge(p, self.config, self.rates, when, lapse.account_value)
-        coi_x2 = 2 * deduction.coi_total
-        fees_x2 = 2 * deduction.fee_total
-        subtotal = surrender + lapse.loan_balance + coi_x2 + fees_x2 - lapse.account_value
-        tpp, epp = premium_load_rates(self.rates, year)
-        flat = self.config.prem_flat_load if self.config.prem_flat_load > 0 else 0.0
-        same_year = p.valuation_date is not None and _counters(p, p.valuation_date)[0] == year
-        premiums_ytd = p.premiums_ytd if same_year else 0.0
-        if subtotal > 0:
-            split = gross_up_for_premium_load(
-                float(subtotal), premiums_ytd=premiums_ytd, ctp=p.ctp,
-                tpp=tpp, epp=epp, flat=flat)
-            premium = _money(split.gross, "Reinstatement premium")
-        else:
-            premium = Decimal("0.00")
-        load = premium - subtotal if subtotal > 0 else Decimal("0.00")
+        zero = Decimal("0.00")
+        if formula is ReinstatementFormula.STANDARD:
+            surrender = _surrender_charge(p, self.config, self.rates, when, lapse.account_value)
+            coi, fees, poav = 2 * deduction.coi_total, 2 * deduction.fee_total, zero
+        elif formula is ReinstatementFormula.IUL08:
+            surrender = _surrender_charge(p, self.config, self.rates, when, lapse.account_value)
+            coi = deduction.coi_total + next_deduction.coi_total
+            fees = (deduction.fee_total - deduction.av_charge
+                    + next_deduction.fee_total - next_deduction.av_charge)
+            poav = deduction.av_charge + next_deduction.av_charge
+        elif formula is ReinstatementFormula.NO_LAPSE_IUL:
+            surrender = lapse.surrender_charge
+            coi, poav = 2 * deduction.coi_total, 2 * deduction.av_charge
+            fees = 2 * (deduction.fee_total - deduction.av_charge)
+        else:  # GIUL21: 2 x MD(LD), no PoAV line and no premium load
+            surrender = lapse.surrender_charge
+            coi, fees, poav = 2 * deduction.coi_total, 2 * deduction.fee_total, zero
+        subtotal = surrender + lapse.loan_balance + coi + fees + poav - lapse.account_value
+        due = subtotal if subtotal > 0 else zero
+
+        if formula is ReinstatementFormula.GIUL21:
+            return ReinstatementPremium(
+                formula.value, lapse.account_value, lapse.loan_balance, surrender, coi, fees,
+                poav, subtotal, zero, due, None, due, due, "none: GIUL21")
+
+        # IUL14+ charges resume at the lapse duration; the others at the reinstatement date.
+        load_date = lapse.lapse_date if formula is ReinstatementFormula.NO_LAPSE_IUL else when
+        load = _LoadBasis.for_year(self, _counters(p, load_date)[0])
+        standard = (_money(load.gross_up(float(subtotal)).gross, "Reinstatement premium")
+                    if subtotal > 0 else zero)
+        standard_load = standard - subtotal if subtotal > 0 else zero
+        premium, net = standard, standard - standard_load
+        no_lapse = None
+        if formula is ReinstatementFormula.NO_LAPSE_IUL:
+            no_lapse = self._no_lapse_premium()
+            if no_lapse is not None and no_lapse.premium < standard:
+                premium = no_lapse.premium
+                net = premium - _money(load.split(float(premium)).total_load, "Premium load")
         return ReinstatementPremium(
-            lapse.account_value, lapse.loan_balance, surrender, coi_x2, fees_x2,
-            subtotal, load, premium, _load_description(tpp, epp, flat))
+            formula.value, lapse.account_value, lapse.loan_balance, surrender, coi, fees,
+            poav, subtotal, standard_load, standard, no_lapse, premium, net,
+            load.description)
+
+    def _no_lapse_premium(self) -> NoLapsePremium | None:
+        """IUL14+ No-Lapse Guarantee premium when the lapse fell inside the period."""
+        expiry = self.no_lapse_expiry()
+        if expiry is None:
+            return None
+        p = self.policy
+        mtp = _money(truncate_monthly_mtp(p.mtp), "Monthly MTP")
+        accumulated = _money(p.accumulated_mtp, "Accumulated MTP")
+        if mtp <= 0 or accumulated <= 0:
+            raise ReinstatementError(
+                "The policy lapsed inside its No-Lapse Guarantee period, but its MTP or "
+                "accumulated MTP is missing, so the No-Lapse reinstatement premium cannot "
+                "be calculated.")
+        withdrawals = _money(p.withdrawals_to_date, "Withdrawals to date")
+        paid = _money(p.premiums_paid_to_date, "Premiums paid to date")
+        amount = accumulated + withdrawals + self.lapse.loan_balance + mtp - paid
+        return NoLapsePremium(
+            accumulated, withdrawals, self.lapse.loan_balance, mtp, paid,
+            amount if amount > 0 else Decimal("0.00"), expiry)
+
+
+_FORMULA_NOTES = {
+    ReinstatementFormula.IUL08: (
+        "Plan {plan} ({label}): surrender charge on the reinstatement date + the monthly "
+        "deductions on the reinstatement date and one month later + policy debt + Percent "
+        "of AV charge - account value, plus the premium load. Charges use durations from "
+        "issue with no adjustment for the time terminated; SafetyNet ends at termination."),
+    ReinstatementFormula.NO_LAPSE_IUL: (
+        "Plan {plan} ({label}): surrender charge at lapse and 2 x the monthly deduction on "
+        "the lapse monthliversary {lapse:%m/%d/%Y} + policy debt + Percent of AV charge - "
+        "account value, plus the premium load. Charges resume at durations reduced by the "
+        "months terminated."),
+    ReinstatementFormula.GIUL21: (
+        "Plan {plan} (GIUL21): the reinstatement premium excludes the premium load. The "
+        "contract's reinstatement language omits the load; this is a known flaw in the "
+        "contract that is honored as written. The surrender charge is at lapse and the 2 x "
+        "monthly deduction is on the lapse monthliversary {lapse:%m/%d/%Y}; the 15-year "
+        "minimum premium guarantee and shadow account end at termination."),
+}
+
+
+@dataclass(frozen=True)
+class _LoadBasis:
+    """Premium-load rates and year-to-date premiums for one policy year."""
+
+    tpp: float
+    epp: float
+    flat: float
+    premiums_ytd: float
+    ctp: float
+
+    @classmethod
+    def for_year(cls, basis: ReinstatementBasis, year: int) -> _LoadBasis:
+        p = basis.policy
+        tpp, epp = premium_load_rates(basis.rates, year)
+        flat = basis.config.prem_flat_load if basis.config.prem_flat_load > 0 else 0.0
+        same_year = p.valuation_date is not None and _counters(p, p.valuation_date)[0] == year
+        return cls(tpp, epp, flat, p.premiums_ytd if same_year else 0.0, p.ctp)
+
+    def _args(self) -> dict:
+        return dict(premiums_ytd=self.premiums_ytd, ctp=self.ctp,
+                    tpp=self.tpp, epp=self.epp, flat=self.flat)
+
+    def gross_up(self, net: float):
+        return gross_up_for_premium_load(net, **self._args())
+
+    def split(self, gross: float):
+        return split_premium_load(gross, **self._args())
+
+    @property
+    def description(self) -> str:
+        return _load_description(self.tpp, self.epp, self.flat)
 
 
 def _load_description(tpp: float, epp: float, flat: float) -> str:
@@ -475,7 +716,7 @@ def build_reinstatement_basis(
 def load_reinstatement_basis(policy, today: date | None = None) -> ReinstatementBasis:
     """Read the lapsed policy's canonical illustration basis once (read-only)."""
     today = today or date.today()
-    eligibility = reinstatement_eligibility(policy)
+    eligibility = reinstatement_eligibility(policy, today)
     if not eligibility.eligible:
         raise ReinstatementError(eligibility.message)
     try:

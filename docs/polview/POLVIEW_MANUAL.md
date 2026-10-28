@@ -261,6 +261,17 @@ and Minimum Premium at full height. The two top panels share one height
 (`TargetsAccumulatorsTab._align_summary_heights`). Regression:
 `test_targets_tab_is_aligned_without_guaranteed_cash_value`.
 
+**Blank definition of life insurance:** when `LH_NON_TRD_POL.TFDF_CD` is blank but the
+record carries guideline premiums (GSP / GLP rows in `LH_COV_INS_GDL_PRM` or an Accum
+GLP `TA` target), the panel shows TEFRA/DEFRA and Guideline/CVAT as **Not set** (a
+tooltip explains) and still shows the GSP, GLP, Accum GLP and GPT fields, and
+Accumulators computes Prem Allowed by GPT: CyberLife keeps enforcing them (U0116323,
+issued 1987). The rule is `targets_view_model.shows_guideline_premiums`. Regression:
+`test_blank_definition_of_life_shows_guideline_premiums_on_record`.
+
+**Reinstatement premium:** the Reinstatement tab's large premium is copyable - select
+it, or right-click > Copy for the plain amount (`1981.86`, no `$` or commas).
+
 ## PolView Other Data
 
 PolView's permanent **Other Data** tab now owns SAP, CLAIMSFILE, TAICyberTAIFd,
@@ -441,14 +452,34 @@ tab, with a non-UL popup instead of a tab for other products. Only lapsed
 policies (last entry `Q`) may be quoted, never surrendered policies. The tab
 shows the values at lapse (account value, loan balance, surrender charge, SNET
 expiry date, CCV benefit cease date), a reinstatement date defaulted to the
-latest monthliversary on or before today, the monthly deduction on that date
-and the reinstatement premium:
+latest monthliversary on or before today, the monthly deduction the formula
+charges and the reinstatement premium. Standard ULs use
 surrender charge + policy debt + 2 x COI + 2 x fees - account value, plus the
-premium load. The shared `polview/services/reinstatement.py` service owns the
-values, using the illustration engine's charges with durations from the
-original issue date. Do not perform financial calculations in the UI or
+premium load. IUL08, IUL14/19/21/23 and GIUL21 follow the S151972 IUL
+reinstatement business requirements (`polview/services/reinstatement_rules.py`):
+IUL08 charges the reinstatement-date and next month's deductions plus the Percent
+of AV charge; IUL14+ use lapse-date charges plus the Percent of AV charge and, when
+lapsed inside the No-Lapse period, quote the lesser of that and the No-Lapse
+Guarantee premium; GIUL21 (`1U147400`) uses lapse-date charges with no premium
+load, a contract-language flaw that is honored and noted on the quote. The shared
+`polview/services/reinstatement.py` service owns the
+values, using the illustration engine's charges. Do not perform financial
+calculations in the UI or
 substitute missing data with zero. Reloading/switching policies clears prior
-quotes. See `docs/POLVIEW_CLAUDE.md` for rules and verification details.
+quotes. See `docs/POLVIEW_CLAUDE.md` for the formula table, rules and verification
+details.
+
+A termination older than the plancode's reinstatement period (measured from the
+TL/SI lapse date, else `PLN_TMN_DT`) is past the reinstatement period: three years
+for the plancodes in `THREE_YEAR_REINSTATEMENT_PLANCODES` (GIUL23/GIUL23-N, GIUL21,
+UL19, SGUL15/18/20/21, IUL14/19/21 and EXEC-UL(NY) families) and five years
+(`REINSTATEMENT_WINDOW_YEARS`) for every other UL. The eligibility check refuses
+it with a red warning naming the termination date and period, and no quote or
+"Quote reinstatement" suggestion is offered. A full
+surrender (last entry `P` not ending in an internal surrender `SI`) is never
+reinstatable; its status badge reads **99 Full Surrender** instead of
+**99 Terminated** (`policy_insights._is_full_surrender`, status 99 only).
+Regression: `tests/test_reinstatement.py`, `tests/test_polview_ux.py`.
 
 ## GLP Exception target-date quotes
 

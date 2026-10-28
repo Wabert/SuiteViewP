@@ -285,7 +285,12 @@ without selections is unrestricted. NULL is not zero. Exclude and both flag
 controls save/reset with their section and default off.
 Both sections place compact 40px Eff Mth and Eff Day ranges on separate rows,
 each beside its existing Issue-month/day checkbox. Gross Amt follows those
-rows; Origin and Fund ID List sit beside the reversal controls below it.
+rows; the reversal controls sit below it. Origin, Fund ID List and Acct Number
+form a separate right-hand column starting on the Transaction Type row, aligned
+in both sections (Transaction 1 reserves the comparison-dropdown width).
+Acct Number matches `FH_ACCTG.ACCTG_NBR` on any debit/credit line of the same
+transaction through a nested `EXISTS` keyed on `CK_CMP_CD`, `TCH_POL_ID` and
+`SEQ_NO`, so multiple accounting lines never duplicate policies.
 Transaction 2 has Entry Dt / Eff Dt comparison dropdowns: none, or strict
 After/Before/Equal to Transaction 1 Entry/Eff Date. Nested `EXISTS` requires one
 qualifying pair satisfying both comparisons and all section criteria; never

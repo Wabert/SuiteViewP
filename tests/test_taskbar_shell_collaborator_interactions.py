@@ -59,9 +59,6 @@ class _ChildWindow(QWidget):
     def load_policy(self, *args, **kwargs) -> None:
         self.loaded_policy = (args, kwargs)
 
-    def has_policy_loaded(self, _policy) -> bool:
-        return False
-
     def _load_existing_screenshots(self) -> None:
         return None
 
@@ -191,15 +188,16 @@ def test_app_launcher_open_paths_use_window_services(
     app_launcher.callbacks._bring_to_front.assert_called_with(launched)
 
 
-def test_app_launcher_app_data_location_uses_current_tab(app_launcher, tmp_path, monkeypatch):
-    navigated_tab = SimpleNamespace(navigate_to_path=Mock())
-    app_launcher.window.get_current_tab = lambda: navigated_tab
-    monkeypatch.setenv("SUITEVIEW_PROFILE_DIR", str(tmp_path / "profile"))
+def test_app_launcher_app_data_location_opens_profile_folder(app_launcher, tmp_path, monkeypatch):
+    opened = Mock()
+    monkeypatch.setattr(taskbar_system.os, "startfile", opened, raising=False)
+    profile_dir = tmp_path / "profile"
+    monkeypatch.setenv("SUITEVIEW_PROFILE_DIR", str(profile_dir))
 
     app_launcher._open_app_data_location()
 
-    navigated_tab.navigate_to_path.assert_called_once()
-    assert "profile" in navigated_tab.navigate_to_path.call_args.args[0]
+    assert profile_dir.is_dir()
+    opened.assert_called_once_with(str(profile_dir))
 
 
 def test_tray_hide_and_show_restore_the_window(qt_app, qtbot, monkeypatch):

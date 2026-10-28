@@ -764,10 +764,15 @@
       "account_value": "-12.34",
       "coi_x2": "40.00",
       "fees_x2": "28.00",
+      "formula": "standard",
       "load_description": "6.00% to target, 3.00% excess",
+      "net_premium": "683.55",
+      "no_lapse": null,
+      "poav_charge": "0.00",
       "policy_debt": "203.21",
       "premium": "720.16",
       "premium_load": "36.61",
+      "standard_premium": "720.16",
       "subtotal": "683.55",
       "surrender_charge": "400.00"
     }

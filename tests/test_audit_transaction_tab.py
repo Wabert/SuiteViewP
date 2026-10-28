@@ -79,6 +79,7 @@ def test_both_sections_round_trip_every_field_and_clear():
             choices.item(number - 1).setSelected(True)
         panel.txt_origin.setText(str(number))
         panel.txt_fund_id.setText(f'F{number}, G{number}')
+        panel.txt_acct_number.setText(f'10{number}0000, 20{number}0000')
     tab.transaction2.date_comparisons['entry'].setCurrentText('After Trans1 Eff Date')
     tab.transaction2.date_comparisons['eff'].setCurrentText('Equal Trans1 Entry Date')
     saved = tab.get_state()
@@ -250,13 +251,17 @@ def test_sections_have_uniform_compact_rows(size):
             assert checkbox.x() == hi.x() + hi.width() + 6
             assert checkbox.width() >= checkbox.sizeHint().width()
         gross = panel.ranges['gross'][0]
-        assert panel.txt_origin.y() == panel.txt_fund_id.y() > gross.geometry().bottom()
+        details = (panel.txt_origin, panel.txt_fund_id, panel.txt_acct_number)
+        assert len({edit.x() for edit in details}) == 1
+        assert panel.txt_origin.geometry().center().y() == panel.transaction_types.geometry().center().y()
+        assert [edit.y() for edit in details[1:]] == [panel.ranges['entry'][0].y(), panel.ranges['eff'][0].y()]
+        assert panel.txt_origin.x() == first.txt_origin.x()
+        right_edges = [panel.transaction_types.geometry().right(), *(hi.geometry().right() for _, hi in panel.ranges.values()), *(combo.geometry().right() for combo in panel.date_comparisons.values()), *(choices.geometry().right() for _, choices in panel.reversal_filters.values())]
+        assert max(right_edges) < panel.txt_origin.x() - 60
         for checkbox, choices in panel.reversal_filters.values():
             assert checkbox.y() > gross.geometry().bottom()
-            assert choices.geometry().right() < panel.txt_origin.x()
-            assert checkbox.y() <= panel.txt_origin.y() <= choices.geometry().bottom()
-        assert panel.txt_origin.geometry().right() < panel.txt_fund_id.x()
-        assert panel.rect().contains(panel.txt_fund_id.geometry())
+        for edit in details:
+            assert panel.rect().contains(edit.geometry())
         for name, combo in panel.date_comparisons.items():
             hi = panel.ranges[name][1]
             assert combo.y() == hi.y()

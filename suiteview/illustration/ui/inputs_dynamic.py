@@ -1862,6 +1862,14 @@ class DynamicInputsPanel(QWidget):
         lumpsum_row.addWidget(self.lumpsum_edit)
         lumpsum_row.addSpacing(12)
         lumpsum_row.addWidget(self.lumpsum_to_next_check)
+        # Reinstatement illustrations: says the lump sum is the reinstatement premium.
+        self.lumpsum_note = QLabel("")
+        self.lumpsum_note.setObjectName("LumpsumNote")
+        self.lumpsum_note.setStyleSheet(
+            "color: #B00020; background: transparent; font-size: 11px; font-weight: bold;")
+        self.lumpsum_note.setVisible(False)
+        lumpsum_row.addSpacing(12)
+        lumpsum_row.addWidget(self.lumpsum_note)
         lumpsum_row.addStretch(1)
         self.premium_section.add_header_widget(lumpsum_header)
         # Premium Solve criteria — visible only while a "Solve" premium row is
@@ -2257,6 +2265,11 @@ class DynamicInputsPanel(QWidget):
     def set_lumpsum_amount(self, value: Optional[float]):
         """Display the solved bridge lumpsum after a run (field stays disabled)."""
         self.lumpsum_edit.set_value(value, decimals=2)
+
+    def set_lumpsum_note(self, text: Optional[str]):
+        """Show (or clear with None) the bold red note beside the Lump Sum."""
+        self.lumpsum_note.setText(text or "")
+        self.lumpsum_note.setVisible(bool(text))
 
     # ── Deemed Cash Value (CVAT Necessary Premium Test) ───────
 

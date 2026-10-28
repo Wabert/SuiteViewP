@@ -666,14 +666,10 @@ class SystemTray(TaskbarCollaborator):
         if not window or not hasattr(window, 'load_policy'):
             return
 
-        # Only load the typed policy when it's new (not already pulled up).
-        # If it's already in PolView's list, leave it on whatever policy was
-        # last shown. Company left empty so PolView auto-detects it.
+        # Company left empty so PolView reuses the Policy List entry for this
+        # region + policy when present, or auto-detects it for a new policy.
         try:
-            already_loaded = (hasattr(window, 'has_policy_loaded')
-                              and window.has_policy_loaded(policy))
-            if not already_loaded:
-                window.load_policy(policy, region=self._compact_region(), company_code="")
+            window.load_policy(policy, region=self._compact_region(), company_code="")
             self.callbacks._bring_to_front(window)
         finally:
             # Always clear the handed-off policy so reopening PolView later

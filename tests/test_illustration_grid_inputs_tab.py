@@ -40,6 +40,21 @@ def test_grid_inputs_tab_is_hidden_by_default():
     assert tab.input_tabs.tabText(3) == "At-Issue Conditions"
 
 
+def test_at_issue_conditions_tab_shows_only_with_new_business_on():
+    tab = _tab()
+    index = tab.input_tabs.indexOf(tab.issue_conditions)
+    assert tab.issue_conditions_tab_visible() is False
+
+    tab.run_from_issue_btn.setChecked(True)
+    assert tab.input_tabs.isTabVisible(index) is True
+    tab.input_tabs.setCurrentIndex(index)
+
+    tab.run_from_issue_btn.setChecked(False)
+    assert tab.input_tabs.isTabVisible(index) is False
+    # Never left on the now-hidden tab.
+    assert tab.input_tabs.tabText(tab.input_tabs.currentIndex()) == "Input"
+
+
 def test_context_menu_toggle_shows_and_hides_the_tab():
     tab = _tab()
     index = tab._grid_inputs_tab_index

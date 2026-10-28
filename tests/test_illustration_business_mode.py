@@ -271,7 +271,8 @@ def test_developer_inputs_tab_unchanged(developer):
     tab.load_data_from_policy(_Policy())
     assert tab.business_mode is False
     assert not tab.run_from_issue_btn.isHidden()
-    assert tab.input_tabs.isTabVisible(tab.input_tabs.indexOf(tab.issue_conditions))
+    # At-Issue Conditions shows only with New Business - From Issue on.
+    assert not tab.issue_conditions_tab_visible()
     assert tab.exact_days_check.isEnabled()
     assert tab.enable_illustration_options_check.isEnabled()
     assert tab.dynamic_panel.tamra_check.isEnabled()

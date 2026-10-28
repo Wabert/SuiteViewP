@@ -251,11 +251,19 @@ class DefinitionOfLifeInsuranceWidget(StyledInfoTableGroup):
         # Advanced product — full display
         self._set_field_visibility("tefra_label", True)
         self._set_field_visibility("guideline_label", True)
-        self.set_value("tefra_label", str(data.get("tefra_defra", "")))
-        self.set_value("guideline_label", str(data.get("gpt_cvat", "")))
-
-        gpt_cvat = str(data.get("gpt_cvat", "")).upper()
-        is_gp = gpt_cvat in ("GP", "GPT")
+        tefra = str(data.get("tefra_defra", "") or "").strip()
+        dol = str(data.get("gpt_cvat", "") or "").strip()
+        self.set_value("tefra_label", tefra or "Not set")
+        self.set_value("guideline_label", dol or "Not set")
+        is_gp = bool(data.get("show_guideline", dol.upper() in ("GP", "GPT")))
+        blank_tip = ""
+        if not dol:
+            blank_tip = "The definition of life insurance code (LH_NON_TRD_POL.TFDF_CD) is blank on this record."
+            if is_gp:
+                blank_tip += ("\nThe record still carries guideline premiums (GSP / GLP / Accum GLP), which "
+                              "CyberLife enforces, so they are shown as a guideline premium test policy.")
+        for attr in ("tefra_label", "guideline_label"):
+            self._fields[attr].setToolTip(blank_tip)
 
         for field in self._gp_fields:
             self._set_field_visibility(field, is_gp)
