@@ -232,20 +232,31 @@ def test_full_surrender_gets_its_own_terminated_badge():
     chip = _status_chip(
         premium_pay_status_code="99", premium_pay_status_description="Terminated",
         last_entry_code="P", get_live_transactions=lambda _codes: _surrender("SF"))
-    assert chip.text == "99 Full Surrender"
+    assert chip.text == "99 - Full Surrender"
     assert chip.tone == insights.DANGER
     assert "cannot be reinstated" in chip.tooltip
 
 
-@pytest.mark.parametrize("last_entry,transactions", [
-    ("Q", []),              # lapse
-    ("P", _surrender("SI")),  # internal surrender
+@pytest.mark.parametrize("last_entry,transactions,expected", [
+    ("Q", [], "99 - Lapse"),
+    ("P", _surrender("SI"), "99 - Internal Surrender"),
+    ("L", [], "99 - Death Claim"),
+    ("M", [], "99 - Maturity"),
+    ("N", [], "99 - Expiry"),
+    ("O", [], "99 - Conversion"),
+    ("R", [], "99 - RPU/ETI"),
+    ("X", [], "99 - Free Look"),
+    ("E", [], "99 - Replacement"),
+    ("K", [], "99 - Terminated"),
+    ("", [], "99 - Terminated"),
 ])
-def test_reinstatable_terminations_keep_the_terminated_badge(last_entry, transactions):
+def test_terminated_badge_shows_the_termination_reason(last_entry, transactions, expected):
     chip = _status_chip(
         premium_pay_status_code="99", premium_pay_status_description="Terminated",
         last_entry_code=last_entry, get_live_transactions=lambda _codes: transactions)
-    assert chip.text == "99 Terminated"
+    assert chip.text == expected
+    assert chip.tone == insights.DANGER
+    assert "LST_ETR_CD" in chip.tooltip
 
 
 def test_traditional_paid_to_behind_valuation_is_a_badge():
@@ -373,6 +384,7 @@ def test_glp_exception_need_horizon_runs_through_the_next_anniversary():
     assert need.monthliversaries_through(date(2026, 9, 7), date(2027, 5, 7)) == 8
     assert need.monthliversaries_through(date(2027, 4, 7), date(2027, 5, 7)) == 1
     assert need.gpt_premium_room(36743.65, 16439.28, 13980.64, 0) == pytest.approx(22763.01)
+    assert need.gpt_premium_room(5179.92, 22237.71, 27089.06, 4494.84) == pytest.approx(-356.51)
     assert need.estimate_glp_exception_need(
         account_value=None, policy_debt=0, monthly_deduction=10, issue_date=date(2021, 5, 7),
         valuation_date=date(2026, 9, 7), gpt_room=100) is None

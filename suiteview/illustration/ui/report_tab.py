@@ -863,7 +863,7 @@ def format_abr_quote_pages(run, policy) -> List[List[str]]:
             "DEATH BENEFIT OPTION: the policy's Option B (increasing) death benefit was "
             "switched to Option A (level) on the first forecast month. The death benefit is "
             "kept level at the switch, so the solve ran on a level death benefit equal to the "
-            "specified amount plus the account value at the change.")
+            "specified amount plus the account value on the valuation date.")
     else:
         bullet(
             "DEATH BENEFIT OPTION: the policy already has a level death benefit (Option A) — "

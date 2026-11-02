@@ -20,9 +20,10 @@ illustration deliberately:
 * A policy loan is retired up front: the account value is reduced by the
   current policy debt and every loan bucket is zeroed before projecting.
 * An Option B policy switches to Option A on the first forecast month. The
-  engine's DBO change keeps the death benefit LEVEL at the switch, so the new
-  level death benefit equals the specified amount plus the account value at
-  the change.
+  engine's DBO change keeps the death benefit LEVEL at the switch; the new
+  level death benefit equals the specified amount plus the account value on
+  the VALUATION DATE (whole dollars, before the loan retirement), not the
+  forecast-month account value that already carries a month of interest.
 * The regular solve targets a $1,000 surrender value at maturity. When the
   policy has a shadow account, a second solve targets a $1,000 shadow account
   value at maturity. The lower annual premium is the official ABR premium.
@@ -42,6 +43,7 @@ from suiteview.illustration.core.face_minimum import PLAN_MINIMUM_EXEMPT_KEY
 from suiteview.illustration.core.solve_premium_to_target import solve_premium_to_target
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.input_set import (
+    DBO_CHANGE_ACCOUNT_VALUE_KEY,
     IllustrationInputSet,
     IllustrationOptions,
     PolicyChangeEvent,
@@ -138,6 +140,10 @@ def run_abr_quote(
     policy = copy.deepcopy(policy)
     engine = engine or IllustrationEngine()
     options = abr_quote_options(base_options)
+    # The Option B death benefit is the specified amount plus the account value
+    # on the valuation date — before the hypothetical loan retirement and
+    # before the engine credits interest up to the forecast month.
+    valuation_av = float(policy.account_value or 0.0)
 
     loan_retired = float(policy.total_loan_balance or 0.0)
     if loan_retired > 0.0:
@@ -146,7 +152,9 @@ def run_abr_quote(
             setattr(policy, bucket, 0.0)
 
     # First forecast month (the engine's month 1) — where the Option B -> A
-    # switch lands so the whole solve runs on a level death benefit.
+    # switch lands so the whole solve runs on a level death benefit. The new
+    # level death benefit is pinned to the valuation-date account value, not
+    # the forecast-month value that already carries a month of interest.
     forecast_date = policy.issue_date + relativedelta(months=int(policy.duration))
     db_option_switched = str(policy.db_option or "").upper() == "B"
     policy_changes: list[PolicyChangeEvent] = []
@@ -155,6 +163,7 @@ def run_abr_quote(
             kind=PolicyChangeKind.DB_OPTION,
             effective_date=forecast_date,
             value="A",
+            metadata={DBO_CHANGE_ACCOUNT_VALUE_KEY: valuation_av},
         ))
 
     # Annual schedule starting in the CURRENT policy year: the anniversary

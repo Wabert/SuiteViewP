@@ -269,6 +269,13 @@ Accumulators computes Prem Allowed by GPT: CyberLife keeps enforcing them (U0116
 issued 1987). The rule is `targets_view_model.shows_guideline_premiums`. Regression:
 `test_blank_definition_of_life_shows_guideline_premiums_on_record`.
 
+**Blank GLP reads as zero:** a GLP zapped to 0 can be stored as a NULL
+`GDL_PRM_AMT` on the `LH_COV_INS_GDL_PRM` `A` row (blank on segment 67). On a GPT
+policy that also has a GSP (`S` row) and an Accum GLP (`TA` target), `pi.targets.glp`
+reads that blank as 0, so the GLP shows 0.00, the GEP chip appears and RERUN treats
+the GLP as known (UL054808). Without an `A` row, or outside those conditions, the
+GLP stays unknown. Regression: `test_blank_glp_reads_zero_on_gpt_policy_with_gsp_and_accum_glp`.
+
 **Reinstatement premium:** the Reinstatement tab's large premium is copyable - select
 it, or right-click > Copy for the plain amount (`1981.86`, no `$` or commas).
 
@@ -477,8 +484,13 @@ UL19, SGUL15/18/20/21, IUL14/19/21 and EXEC-UL(NY) families) and five years
 it with a red warning naming the termination date and period, and no quote or
 "Quote reinstatement" suggestion is offered. A full
 surrender (last entry `P` not ending in an internal surrender `SI`) is never
-reinstatable; its status badge reads **99 Full Surrender** instead of
-**99 Terminated** (`policy_insights._is_full_surrender`, status 99 only).
+reinstatable; its status badge reads **99 - Full Surrender**. Every status 99
+badge names the termination reason from `LH_BAS_POL.LST_ETR_CD`
+(`policy_insights._termination_reason`): **99 - Lapse** (`Q`), **99 - Death
+Claim** (`L`), **99 - Full Surrender** / **99 - Internal Surrender** (`P`, by the
+last live SF/SI), **99 - Maturity** (`M`), **99 - Expiry** (`N`), **99 -
+Conversion** (`O`), **99 - RPU/ETI** (`R`), **99 - Free Look** (`X`), **99 -
+Replacement** (`E`/`F`), else **99 - Terminated**.
 Regression: `tests/test_reinstatement.py`, `tests/test_polview_ux.py`.
 
 ## GLP Exception target-date quotes

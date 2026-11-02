@@ -727,6 +727,34 @@ def test_lumpsum_premium_reports_on_its_own_dated_line():
     ]
 
 
+def test_reinstatement_report_prints_the_short_header_and_labels_the_premium():
+    from dateutil.relativedelta import relativedelta
+
+    rows = [MonthlyState(policy_year=7, policy_month=12, duration=84)]
+    for month in range(1, 13):
+        duration = 84 + month
+        lump = 1981.86 if month == 1 else 0.0
+        rows.append(_month(
+            8, month, date=date(2019, 11, 9) + relativedelta(months=duration - 1),
+            requested_premium=100.0 + lump, unscheduled_premium=lump))
+    inputs = IllustrationInputSet(dated_transactions=[DatedTransaction(
+        kind=TransactionKind.PREMIUM, effective_date=date(2026, 11, 9),
+        amount=1981.86, subtype="manual_lumpsum")])
+    policy = _policy()
+    policy.reinstatement_date = date(2026, 10, 9)
+    policy.starting_basis_assumptions = ["REINSTATEMENT: lapsed 07/09/2026; long notes."]
+
+    report = build_ul_report(policy, rows, future_inputs=inputs, run_date=date(2026, 10, 8))
+
+    assert report.basis_lines == [
+        "ILLUSTRATION ASSUMES REINSTATEMENT ON 10/09/2026 WITH A REINSTATEMENT PREMIUM "
+        "OF $1,981.86.",
+        "UPON REINSTATEMENT THE MAP PERIOD (SAFETY NET) AND THE COVERAGE CONTINUATION "
+        "BENEFIT REMAIN TERMINATED.",
+    ]
+    assert report.request_lines[0] == "REINSTATEMENT PREMIUM OF $1,981.86 ON 11/09/2026"
+
+
 def test_apply_premium_to_loan_noted_under_requested_activity():
     from suiteview.illustration.ui.report_tab import format_report_pages
 

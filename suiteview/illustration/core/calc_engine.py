@@ -191,6 +191,7 @@ from suiteview.illustration.core.withdrawal_handler import (
 )
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.input_set import (
+    DBO_CHANGE_ACCOUNT_VALUE_KEY,
     IllustrationInputSet,
     IllustrationOptions,
     InterimOpening,
@@ -847,7 +848,7 @@ def _simulate_change_cut(sim, config, change, rates, rate_year, when, av) -> Opt
         new = str(change.value or "").upper()
         if not new or new == old:
             return None
-        av_whole = float(math.floor(max(av, 0.0)))
+        av_whole = float(math.floor(max(_dbo_change_av(change, av), 0.0)))
         sim.db_option = new
         if old == DB_OPTION_LEVEL and new == DB_OPTION_INCREASING:
             return _reduce_base_face(
@@ -4059,6 +4060,12 @@ def _capture_policy_change_before(
     )
 
 
+def _dbo_change_av(change, av: float) -> float:
+    """Account value sizing a DB option change: the pinned metadata value, else ``av``."""
+    pinned = (change.metadata or {}).get(DBO_CHANGE_ACCOUNT_VALUE_KEY)
+    return av if pinned is None else float(pinned)
+
+
 def _apply_db_option_change(
     policy, config, change, rates, rate_year: int, av: float,
     outcome: _PolicyChangeOutcome,
@@ -4067,7 +4074,7 @@ def _apply_db_option_change(
     new = str(change.value or "").upper()
     if not new or new == old:
         return
-    av_whole = float(math.floor(max(av, 0.0)))
+    av_whole = float(math.floor(max(_dbo_change_av(change, av), 0.0)))
     detail: Dict[str, object] = {
         "Prev DBO": old,
         "Input DBO": new,

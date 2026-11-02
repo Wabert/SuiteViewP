@@ -115,6 +115,7 @@ def test_illustration_starts_on_the_reinstatement_date_and_forecasts_the_next_mo
     assert policy.premiums_after_valuation == []
     assert policy.premiums_after_valuation_error == PREMIUMS_AFTER_VALUATION_NOT_APPLICABLE
     assert policy.starting_basis_assumptions[0].startswith("REINSTATEMENT: lapsed 05/15/2026")
+    assert policy.reinstatement_date == SAME_YEAR
 
 
 def test_reinstatement_date_deduction_matches_the_polview_quote():

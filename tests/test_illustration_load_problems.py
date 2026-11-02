@@ -1,8 +1,8 @@
 """Load-time problems surface where the user acts (should-do 4, M6 second half).
 
 Missing illustration rates block Run for business users (developers get a
-warning); a monthly-deduction mismatch over $0.01 is a prominent banner on the
-Inputs tab and in the run notice, and never blocks.
+warning); a monthly-deduction mismatch over $0.01 is one amber line in the
+window's run notice (not repeated on the Inputs or Policy tab), and never blocks.
 """
 import os
 from types import SimpleNamespace
@@ -46,8 +46,9 @@ def test_md_mismatch_threshold_is_one_cent(calculated, shown):
     notice = monthly_deduction_mismatch_notice(_md(calculated))
     assert bool(notice) is shown
     if shown:
-        assert notice.startswith("MONTHLY DEDUCTION CHECK:")
-        assert f"${calculated:,.2f}" in notice and "$100.00" in notice
+        assert notice == (f"Monthly deduction mismatch: SuiteView ${calculated:,.2f} vs "
+                          f"CyberLife $100.00 (diff ${calculated - 100.0:,.2f}). "
+                          "Review values with care.")
 
 
 def _phase1_policy():
@@ -94,7 +95,7 @@ def test_md_mismatch_warns_without_blocking(monkeypatch, business):
     win._load_md_warning = monthly_deduction_mismatch_notice(_md(101.25))
     assert win._apply_illustration_gate() is False
     assert win.run_values_btn.isEnabled()
-    assert "MONTHLY DEDUCTION CHECK" in win.run_notice.text()
+    assert "Monthly deduction mismatch" in win.run_notice.text()
     assert "#D4A017" in win.run_notice.styleSheet()          # amber, not the red block
 
 
@@ -162,18 +163,14 @@ def test_load_checks_record_missing_rates_and_md_mismatch(monkeypatch):
     warnings, md_check = win._policy_load_checks("UL000001", "CKPR", "01")
     assert _MISSING in warnings
     assert win._load_rate_problems == (_MISSING,)
-    assert "difference $3.00" in win._load_md_warning
+    assert "(diff $3.00)" in win._load_md_warning
+    assert win._load_md_warning in warnings        # kept for the support export
     assert md_check.md_check_calculated_deduction == 103.0
 
 
-def test_inputs_tab_load_warning_banner():
+def test_inputs_tab_has_no_duplicate_load_warning_banner():
     global _QT_APP
     _QT_APP = QApplication.instance() or QApplication([])
     tab = IllustrationInputsTab()
-    assert tab.load_warning_banner.isHidden()
-    assert tab.load_warning_banner.styleSheet() == ""
-    tab.set_load_warning("MONTHLY DEDUCTION CHECK: test")
-    assert not tab.load_warning_banner.isHidden()
-    assert tab.load_warning_banner.text() == "MONTHLY DEDUCTION CHECK: test"
-    tab.set_load_warning(None)
-    assert tab.load_warning_banner.isHidden()
+    assert not hasattr(tab, "load_warning_banner")
+    assert not hasattr(tab, "set_load_warning")

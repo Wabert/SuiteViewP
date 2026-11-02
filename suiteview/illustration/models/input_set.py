@@ -24,6 +24,12 @@ class PolicyChangeKind(str, Enum):
     SUBSTANDARD = "substandard"
 
 
+# ``PolicyChangeEvent.metadata`` key for a DB_OPTION change: pins the account
+# value that sizes the specified-amount adjustment (B->A adds it, A->B removes
+# it). Absent, the engine uses the account value of the change month itself.
+DBO_CHANGE_ACCOUNT_VALUE_KEY = "dbo_change_account_value"
+
+
 @dataclass
 class ScheduledTransaction:
     """Recurring transaction defined by policy year rather than an absolute date."""

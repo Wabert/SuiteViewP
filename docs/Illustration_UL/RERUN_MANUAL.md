@@ -1308,8 +1308,13 @@ No-Lapse guarantee, or skip the premium load on the GIUL21 lump sum. The quoted
 premium itself (the Lump Sum) follows the requirements.
 
 Run Values projects this reinstated basis (never a fresh reload); the Policy tab
-keeps the lapsed record with a banner, and the report discloses the reinstatement
-through `starting_basis_assumptions`. Changing the reinstatement date re-seats the
+keeps the lapsed record with a banner whose tooltip lists the detailed
+`starting_basis_assumptions`. The report header stays short: "ILLUSTRATION
+ASSUMES REINSTATEMENT ON <date> WITH A REINSTATEMENT PREMIUM OF <Lump Sum>." and
+"UPON REINSTATEMENT THE MAP PERIOD (SAFETY NET) AND THE COVERAGE CONTINUATION
+BENEFIT REMAIN TERMINATED." (keyed off `IllustrationPolicyData.reinstatement_date`),
+and the cover's requested activity lists the Lump Sum as "REINSTATEMENT PREMIUM OF
+...". Changing the reinstatement date re-seats the
 inputs on the new basis (Inforce inputs kept; New Business and Edit Record are
 turned off) and re-prices the Lump Sum. A policy that cannot be reinstated (full
 surrender, other terminations, a termination past the plancode's 3- or 5-year

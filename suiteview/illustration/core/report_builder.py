@@ -127,11 +127,48 @@ def _pct(value: float) -> str:
 
 ISSUE_OUTPUT_LABEL = "NEW BUSINESS - FROM ISSUE"
 ROLLBACK_OUTPUT_LABEL = "VALUE ROLLBACK - HISTORICAL INFORCE BASIS"
+REINSTATEMENT_TERMINATIONS_LINE = (
+    "UPON REINSTATEMENT THE MAP PERIOD (SAFETY NET) AND THE COVERAGE CONTINUATION BENEFIT "
+    "REMAIN TERMINATED.")
 
 
-def rollback_output_basis(policy: IllustrationPolicyData) -> List[str]:
+def reinstatement_output_basis(
+    policy: IllustrationPolicyData, reinstatement_premium: Optional[float] = None,
+) -> List[str]:
+    """The short reinstatement header; the premium clause needs the illustrated lump sum."""
+    when = policy.reinstatement_date
+    if when is None:
+        return []
+    premium = (
+        f" WITH A REINSTATEMENT PREMIUM OF {_money(reinstatement_premium)}"
+        if reinstatement_premium is not None and reinstatement_premium > 0.005 else "")
+    return [
+        f"ILLUSTRATION ASSUMES REINSTATEMENT ON {when:%m/%d/%Y}{premium}.",
+        REINSTATEMENT_TERMINATIONS_LINE,
+    ]
+
+
+def illustrated_reinstatement_premium(
+    policy: IllustrationPolicyData, future_inputs: Optional[IllustrationInputSet],
+) -> Optional[float]:
+    """The illustrated reinstatement premium: the Input tab's manual lump sum."""
+    if policy.reinstatement_date is None or future_inputs is None:
+        return None
+    amounts = [
+        tx.amount for tx in future_inputs.dated_transactions
+        if tx.kind == TransactionKind.PREMIUM and tx.subtype == "manual_lumpsum"
+        and tx.amount > 0.005
+    ]
+    return round(sum(amounts), 2) if amounts else None
+
+
+def rollback_output_basis(
+    policy: IllustrationPolicyData, reinstatement_premium: Optional[float] = None,
+) -> List[str]:
     """Identify recorded starting values separately from forward assumptions."""
     when = getattr(policy, "rollback_date", None)
+    if when is None and policy.reinstatement_date is not None:
+        return reinstatement_output_basis(policy, reinstatement_premium)
     manual_lines = [
         line
         for assumption in policy.starting_basis_assumptions
@@ -778,9 +815,12 @@ def _request_lines_from_specs(
                 continue
             lumpsum_by_duration[landing.duration] = (
                 lumpsum_by_duration.get(landing.duration, 0.0) + tx.amount)
+            label = (
+                "REINSTATEMENT PREMIUM" if policy.reinstatement_date is not None
+                and tx.subtype == "manual_lumpsum" else "PREMIUM")
             lumpsum_entries.append((
                 landing.policy_year,
-                f"PREMIUM OF {_money(tx.amount)} "
+                f"{label} OF {_money(tx.amount)} "
                 f"ON {tx.effective_date.strftime('%m/%d/%Y')}"))
 
     runs: List[dict] = []
@@ -1610,7 +1650,8 @@ def _build_ul_report_from_facts(
     report = IllustrationReport(
         run_date=run_date,
         run_from_issue=policy.run_from_issue,
-        basis_lines=issue_output_basis(policy) + rollback_output_basis(policy),
+        basis_lines=issue_output_basis(policy) + rollback_output_basis(
+            policy, illustrated_reinstatement_premium(policy, future_inputs)),
     )
     report.valuation_date = policy.valuation_date
     if run_context is not None:

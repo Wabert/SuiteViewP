@@ -61,7 +61,7 @@ def prem_allowed_gpt_tip(inputs: dict, value) -> str:
     limit = max(inputs["gsp"], inputs["accum_glp"])
     return "\n".join([
         "Premium still allowed by the guideline premium test:",
-        "max(GSP, Accum GLP) - Premiums TD + Withdrawals, not below 0",
+        "max(GSP, Accum GLP) - Premiums TD + Withdrawals (negative = over the limit)",
         f"max({_money(inputs['gsp'])}, {_money(inputs['accum_glp'])}) = {_money(limit)}",
         f"{_money(limit)} - {_money(inputs['premium_td'])} + {_money(inputs['withdrawals'])}"
         f" = {_money(value)}",

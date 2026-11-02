@@ -356,6 +356,9 @@ class IllustrationPolicyData:
     rollback_limitations: List[str] = field(default_factory=list)
     rollback_requires_shadow_value: bool = False
     starting_basis_assumptions: List[str] = field(default_factory=list)
+    # Set when the basis is a reinstated lapse (core/reinstatement_start.py); the
+    # report then prints the short reinstatement header instead of the notes.
+    reinstatement_date: Optional[date] = None
     starting_account_value_is_manual: bool = False
     starting_coverage_amounts_are_manual: bool = False
     starting_record_fields: List[str] = field(default_factory=list)

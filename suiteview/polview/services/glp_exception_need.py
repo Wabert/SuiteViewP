@@ -35,8 +35,11 @@ ASSUMED_PREMIUM_LOAD = 0.10
 
 def gpt_premium_room(gsp: float, accumulated_glp: float, premium_td: float,
                      withdrawals: float) -> float:
-    """Premium still allowed by the guideline premium test ("Prem Allowed by GPT")."""
-    return max(0.0, max(gsp, accumulated_glp) - premium_td + withdrawals)
+    """Premium still allowed by the guideline premium test ("Prem Allowed by GPT").
+
+    Not floored at zero: a negative value shows how far premiums exceed the limit.
+    """
+    return max(gsp, accumulated_glp) - premium_td + withdrawals
 
 
 def next_policy_anniversary(issue_date: date, valuation_date: date) -> date:

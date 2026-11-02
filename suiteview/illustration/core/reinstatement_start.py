@@ -120,6 +120,7 @@ def build_reinstated_policy(
     ]
 
     reinstated.valuation_date = when
+    reinstated.reinstatement_date = when
     reinstated.policy_year = year
     reinstated.policy_month = completed % 12 + 1
     reinstated.duration = completed + 1

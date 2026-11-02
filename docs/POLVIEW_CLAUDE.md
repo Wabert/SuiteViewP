@@ -347,7 +347,8 @@ than the plancode's reinstatement period is also refused, with a red warning nam
 the termination date: three years for `THREE_YEAR_REINSTATEMENT_PLANCODES`, five
 years (`REINSTATEMENT_WINDOW_YEARS`) for every other UL. A full surrender's status
 badge reads
-**99 Full Surrender**. RERUN shows this same tab for status 97/99 ULs and starts the
+**99 - Full Surrender** (every 99 badge names its `LST_ETR_CD` reason, e.g.
+**99 - Lapse**, **99 - Death Claim**). RERUN shows this same tab for status 97/99 ULs and starts the
 illustration from its quote (RERUN_MANUAL "RERUN reinstatement illustrations"). Changing or
 reloading the policy removes the tab and clears its previous quote.
 

@@ -167,7 +167,8 @@ company through canonical lookup. It derives:
   benefit is the maximum of zero, raw benefit, and the supplied net surrender floor.
 - Funding premium from `illustration.core.abr_quote.run_abr_quote`: monthly
   policy forecast conventions, next-anniversary annual payments, effective ABR
-  interest, retirement of current debt, Option B→A, and existing $1,000 maturity
+  interest, retirement of current debt, Option B→A (level death benefit locked
+  at face + valuation-date account value), and existing $1,000 maturity
   surrender/shadow rules.
 - Debt from that canonical funding run's `loan_retired`, using the Illustration
   policy's current LoanRecords buckets. `PolicyInformation.loans.total_loan_balance`

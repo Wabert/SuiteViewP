@@ -1535,7 +1535,10 @@ class IllustrationWindow(FramelessWindowBase):
         # Status 97/99 UL: the illustration starts from the reinstatement quote.
         self._load_reinstatement()
         self.policy_tab.load_data_from_policy(self._policy, self._policy_info, md_check=md_check)
-        self.policy_tab.set_rate_warnings(warnings)
+        # The MD mismatch shows once, in the run notice; it stays in `warnings`
+        # for the support export.
+        self.policy_tab.set_rate_warnings(
+            [w for w in warnings if w != self._load_md_warning])
         self._refresh_summary_strip()
         # Backfill both List views' "| <form>" label segment now that the
         # policy's data (and its base-coverage form number) is loaded.
@@ -1591,7 +1594,6 @@ class IllustrationWindow(FramelessWindowBase):
 
         # Live data on screen — no as-of strip on this policy's inputs tab.
         self.inputs_tab.set_snapshot_notice(None)
-        self.inputs_tab.set_load_warning(self._load_md_warning or None)
 
         # A different policy invalidates any rendered comparison — clear it so
         # the old policy's results can never sit under the new pickers.
@@ -2156,8 +2158,9 @@ class IllustrationWindow(FramelessWindowBase):
         try:
             md_check = project_policy(
                 policy_data, months=0, rates=rates, config=config).states[0]
-            warnings.extend(self._monthly_deduction_warnings(md_check))
             self._load_md_warning = monthly_deduction_mismatch_notice(md_check)
+            if self._load_md_warning:
+                warnings.append(self._load_md_warning)
         except Exception as exc:
             warnings.append(f"Unable to validate monthly deduction: {exc}")
         return warnings, md_check
@@ -2197,19 +2200,6 @@ class IllustrationWindow(FramelessWindowBase):
         if self._reinstatement_warning:
             warnings.append(self._reinstatement_warning)
         return tuple(blocks), tuple(warnings)
-
-    @staticmethod
-    def _monthly_deduction_warnings(md_check) -> list[str]:
-        cyberlife_md = float(getattr(md_check, "system_monthly_deduction", 0.0) or 0.0)
-        calculated_md = float(getattr(md_check, "md_check_calculated_deduction", 0.0) or 0.0)
-        variance = calculated_md - cyberlife_md
-        if abs(variance) < 0.005:
-            return []
-        return [
-            "Monthly deduction check mismatch: "
-            f"CyberLife MD ${cyberlife_md:,.2f} vs Calculated MD ${calculated_md:,.2f} "
-            f"(variance ${variance:,.2f})."
-        ]
 
     @staticmethod
     def _definition_of_life_warnings(policy_data) -> list[str]:

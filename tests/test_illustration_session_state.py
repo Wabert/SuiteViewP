@@ -374,7 +374,6 @@ def test_policy_load_checks_uses_data_loader_before_projection(monkeypatch):
         _policy=object(),
         _illustration_data=None,
         _definition_of_life_warnings=lambda _policy: [],
-        _monthly_deduction_warnings=lambda _state: [],
     )
 
     monkeypatch.setattr(

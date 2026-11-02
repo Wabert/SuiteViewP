@@ -33,8 +33,9 @@ processed, the quote falls back to the monthliversary values and says why.
 
 Room and adjustment:
 
-* ``room = max(0, AccumGLP - PremiumsPaidToDate + AccumWDs)`` — the same
-  "Prem Allowed by GPT" figure shown on the Targets & Accumulators tab, with
+* ``room = max(0, AccumGLP - PremiumsPaidToDate + AccumWDs)`` — the
+  "Prem Allowed by GPT" figure shown on the Targets & Accumulators tab
+  floored at zero, with
   ``PremiumsPaidToDate`` including the premiums received since the valuation
   monthliversary.
 * ``total_premium_needed`` — the gross premium actually paid into the policy

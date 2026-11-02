@@ -92,9 +92,23 @@ class TargetsSection(PolicySection):
 
     @property
     def glp(self) -> Optional[Decimal]:
-        """Guideline Level Premium (PRM_RT_TYP_CD = 'A')."""
-        val = self.data_item_where("LH_COV_INS_GDL_PRM", "GDL_PRM_AMT", "PRM_RT_TYP_CD", "A")
-        return Decimal(str(val)) if val is not None else None
+        """Guideline Level Premium (PRM_RT_TYP_CD = 'A').
+
+        A GLP zapped to 0 can be stored as a blank (NULL) GDL_PRM_AMT on the 'A'
+        row, shown blank on segment 67. On a GPT policy that still carries a GSP
+        and an Accum GLP, that blank reads as 0 so the guideline exception period
+        is recognized (UL054808, 10/29/2026).
+        """
+        table = "LH_COV_INS_GDL_PRM"
+        val = self.data_item_where(table, "GDL_PRM_AMT", "PRM_RT_TYP_CD", "A")
+        if val is not None:
+            return Decimal(str(val))
+        if (self.find_row_index(table, "PRM_RT_TYP_CD", "A") >= 0
+                and self.product.gpt_cvat == "GPT"
+                and self.gsp is not None
+                and self.accumulated_glp_target is not None):
+            return Decimal("0")
+        return None
 
     @property
     def gsp(self) -> Optional[Decimal]:

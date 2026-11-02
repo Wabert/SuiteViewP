@@ -17,6 +17,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any, Callable, Optional
 
+from suiteview.polview.models.cl_polrec.policy_translations import LAST_ENTRY_CODES
 from suiteview.polview.models.policy_data import CachedReadError
 from suiteview.polview.models.policy_sections.lookup import policy_attr
 
@@ -160,14 +161,34 @@ def _same_month_day(a: Optional[date], b: date) -> bool:
     return bool(a and (a.month, a.day) == (b.month, b.day))
 
 
-def _is_full_surrender(read: "_Reader") -> bool:
-    """Terminated by a full surrender (P, not ending in an internal surrender SI)."""
+# Short badge reasons for a terminated (99) policy, keyed by LH_BAS_POL.LST_ETR_CD.
+_TERMINATION_REASONS = {
+    "E": "Replacement",
+    "F": "Replacement",
+    "L": "Death Claim",
+    "M": "Maturity",
+    "N": "Expiry",
+    "O": "Conversion",
+    "P": "Surrender",
+    "Q": "Lapse",
+    "R": "RPU/ETI",
+    "X": "Free Look",
+}
+
+
+def _termination_reason(read: "_Reader") -> tuple[str, str, Optional[bool]]:
+    """Last entry code and badge reason for a 99 status, plus whether a surrender
+    (P) is full (True), internal SI (False) or not yet known (None)."""
     code = str(read.get("last_entry_code") or "").strip().upper()
+    reason = _TERMINATION_REASONS.get(code, "Terminated")
     if code != "P":
-        return False
+        return code, reason, None
     from suiteview.polview.services.reinstatement import is_full_surrender
 
-    return bool(read.get("full_surrender", is_full_surrender))
+    full = read.get("full_surrender", is_full_surrender)
+    if full is None:
+        return code, reason, None
+    return code, ("Full Surrender" if full else "Internal Surrender"), bool(full)
 
 
 @dataclass(frozen=True)
@@ -239,12 +260,20 @@ def _summary_chips(
         chips.append(Chip("pending", "Pending", WARN,
                           "Pending policy (CK_SYS_CD = 'P'), not yet inforce."))
     if facts.status_code:
-        if facts.status_code.strip() == TERMINATED_STATUS and _is_full_surrender(read):
+        if facts.status_code.strip() == TERMINATED_STATUS:
+            entry, reason, full = _termination_reason(read)
+            entry_text = (f"{entry} - {LAST_ENTRY_CODES.get(entry, 'Unknown')}"
+                          if entry else "not available")
+            detail = ""
+            if full is True:
+                detail = ("\nFull surrender (not an internal surrender SI): "
+                          "cannot be reinstated.")
+            elif full is False:
+                detail = "\nInternal surrender (SI)."
             chips.append(Chip(
-                "status", f"{facts.status_code} Full Surrender", DANGER,
-                f"Premium paying status {facts.status_code} - terminated by a full surrender "
-                "(last entry P, Termination - Surrender, not an internal surrender SI).\n"
-                "A fully surrendered policy cannot be reinstated.\n"
+                "status", f"{facts.status_code} - {reason}", DANGER,
+                f"Premium paying status {facts.status_code} - {facts.status_desc}\n"
+                f"Last entry: {entry_text}{detail}\n"
                 "Source: LH_BAS_POL.PRM_PAY_STA_REA_CD, LH_BAS_POL.LST_ETR_CD",
             ))
         else:
@@ -347,7 +376,8 @@ def _append_advanced_life_chips(
                     "gep", "GEP", GEP,
                     "Guideline Exception Period: an inforce GPT policy whose GLP is 0 "
                     "(GLP is set to 0 while the policy is in the guideline exception period).\n"
-                    "Source: LH_COV_INS_GDL_PRM.GDL_PRM_AMT (PRM_RT_TYP_CD = 'A') = 0"))
+                    "Source: LH_COV_INS_GDL_PRM.GDL_PRM_AMT (PRM_RT_TYP_CD = 'A') = 0 "
+                    "(a blank GLP reads as 0 when a GSP and Accum GLP are on record)"))
         standard_db = read.get("standard_death_benefit")
         corridor_db = read.get("corridor_death_benefit")
         if corridor_db is not None and standard_db is not None and corridor_db > standard_db:

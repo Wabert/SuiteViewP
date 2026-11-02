@@ -97,23 +97,23 @@ def test_policy_tab_sets_monthly_deduction_values_from_check():
     assert tab.policy_info.get_value("calculated_md") == "$123.46"
 
 
-def test_monthly_deduction_warning_only_when_cent_values_differ():
+def test_monthly_deduction_mismatch_is_not_repeated_on_policy_tab():
+    from suiteview.illustration.core.run_gates import monthly_deduction_mismatch_notice
+
     equal_check = SimpleNamespace(
-        system_monthly_deduction=123.451,
-        md_check_calculated_deduction=123.454,
-    )
-    mismatch_check = SimpleNamespace(
         system_monthly_deduction=123.45,
         md_check_calculated_deduction=123.46,
     )
+    mismatch_check = SimpleNamespace(
+        system_monthly_deduction=123.45,
+        md_check_calculated_deduction=123.47,
+    )
 
-    assert IllustrationWindow._monthly_deduction_warnings(equal_check) == []
-    warnings = IllustrationWindow._monthly_deduction_warnings(mismatch_check)
-
-    assert len(warnings) == 1
-    assert "Monthly deduction check mismatch" in warnings[0]
-    assert "CyberLife MD $123.45" in warnings[0]
-    assert "Calculated MD $123.46" in warnings[0]
+    assert monthly_deduction_mismatch_notice(equal_check) == ""
+    notice = monthly_deduction_mismatch_notice(mismatch_check)
+    assert notice == ("Monthly deduction mismatch: SuiteView $123.47 vs CyberLife "
+                      "$123.45 (diff $0.02). Review values with care.")
+    assert not hasattr(IllustrationWindow, "_monthly_deduction_warnings")
 
 
 def test_blank_definition_of_life_warning_uses_policy_warning_area():

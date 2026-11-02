@@ -297,7 +297,7 @@ def test_max_partial_rejects_face_above_locked_death_benefit(_flat_plancode):
         )
 
 
-def test_option_b_max_partial_uses_forecast_locked_death_benefit(_flat_plancode):
+def test_option_b_max_partial_uses_valuation_date_locked_death_benefit(_flat_plancode):
     policy = _loaned_option_b_policy()
     policy.account_value = 50_000.0
     policy.regular_loan_principal = 0.0
@@ -311,9 +311,23 @@ def test_option_b_max_partial_uses_forecast_locked_death_benefit(_flat_plancode)
 
     partial = run.max_partial
     assert partial is not None
+    # The forecast month has already credited a month of interest, but the
+    # level death benefit is locked at face + the VALUATION-DATE account value.
+    assert run.results[1].av_end_of_month > 50_000.0
     forecast_locked_db = run.results[1].coverage_after_change["CurrentSA"]
-    assert partial.locked_death_benefit == pytest.approx(forecast_locked_db)
-    assert partial.locked_death_benefit > 150_000.0
+    assert forecast_locked_db == pytest.approx(150_000.0)
+    assert partial.locked_death_benefit == pytest.approx(150_000.0)
     assert partial.proportional_account_value == pytest.approx(
-        50_000.0 * 75_000.0 / forecast_locked_db
+        50_000.0 * 75_000.0 / 150_000.0
     )
+
+
+def test_option_b_lock_uses_valuation_av_before_loan_retirement(_flat_plancode):
+    run = run_abr_quote(_loaned_option_b_policy(), engine=_FlatRatesEngine())
+
+    # Face 100,000 + valuation-date AV 5,000; the hypothetical 6,000 loan
+    # retirement does not shrink the Option B death benefit being locked.
+    assert run.results[1].coverage_after_change["CurrentSA"] == pytest.approx(105_000.0)
+    assert run.policy.account_value == pytest.approx(-1_000.0)
+    report = " ".join("\n".join(format_abr_quote_pages(run, run.policy)[0]).split())
+    assert "plus the account value on the valuation date" in report
